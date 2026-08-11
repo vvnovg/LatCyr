@@ -26,9 +26,14 @@ final class TextConverterTests: XCTestCase {
     }
 
     func testAllLettersRoundTrip() {
-        let latin = "qwertyuiop[]asdfghjkl;'zxcvbnm,./"
-        let cyrillic = "йцукенгшщзхъфывапролджэячсмитьбю."
+        let latin = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./"
+        let cyrillic = "ёйцукенгшщзхъфывапролджэячсмитьбю."
         XCTAssertEqual(TextConverter.toCyrillic(latin), cyrillic)
         XCTAssertEqual(TextConverter.toLatin(cyrillic), latin)
+    }
+
+    func testYoCase() {
+        XCTAssertEqual(TextConverter.toCyrillic("~"), "Ё")
+        XCTAssertEqual(TextConverter.toLatin("Ё"), "~")
     }
 }

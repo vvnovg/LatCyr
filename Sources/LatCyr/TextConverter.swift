@@ -4,6 +4,7 @@ import Foundation
 /// Digits and symbols are left untouched. Case is preserved.
 public enum TextConverter {
     private static let latinToCyrillic: [Character: Character] = [
+        "`": "ё", "~": "Ё",
         "q": "й", "w": "ц", "e": "у", "r": "к", "t": "е", "y": "н",
         "u": "г", "i": "ш", "o": "щ", "p": "з", "[": "х", "]": "ъ",
         "a": "ф", "s": "ы", "d": "в", "f": "а", "g": "п", "h": "р",
@@ -30,6 +31,7 @@ public enum TextConverter {
 
     private static func convert(_ text: String, using table: [Character: Character]) -> String {
         String(text.map { char in
+            if let mapped = table[char] { return mapped }
             let lower = Character(char.lowercased())
             guard let mapped = table[lower] else { return char }
             return char.isUppercase ? Character(mapped.uppercased()) : mapped
