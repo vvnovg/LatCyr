@@ -1,3 +1,7 @@
-// Placeholder entry point — replaced in Task 7.
-import Foundation
-print("LatCyr placeholder")
+import AppKit
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory) // menu bar app: no dock icon
+app.run()
