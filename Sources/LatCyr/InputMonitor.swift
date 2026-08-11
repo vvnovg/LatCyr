@@ -118,8 +118,9 @@ final class InputMonitor {
         } else if isWordBoundary(char) {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
+            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian) {
+                scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, boundary: char)
             }
-            scheduleRetroactiveCheck(boundary: char)
             currentWord = ""
         } else {
             currentWord = ""
@@ -143,11 +144,17 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(boundary: Character) {
-        let word = currentWord
-        let wasRussian = currentLayoutIsRussian
+    private func scheduleRetroactiveCheck(word: String, wasRussian: Bool, boundary: Character) {
+        // Capture the word's position now, synchronously — not 50ms from
+        // now, when applyCorrection actually runs. If the user starts the
+        // next word without pausing, a cursor-relative lookup done later
+        // would find that new word instead of this one and silently fail
+        // to correct it (see WordAnchor's doc comment). nil is fine here:
+        // it means no AX-correctable target (e.g. a terminal), and the
+        // delayed call still runs so the keystroke fallback gets a chance.
+        let anchor = textFieldController.captureWordAnchor(matching: word)
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.performRetroactiveFix(word: word, wasRussian: wasRussian, boundary: boundary)
+            self?.applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false, boundary: boundary, anchor: anchor)
         }
     }
 
@@ -183,29 +190,40 @@ final class InputMonitor {
         currentWord = ""
     }
 
-    private func performRetroactiveFix(word: String, wasRussian: Bool, boundary: Character) {
-        guard LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: wasRussian) else { return }
-        applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false, boundary: boundary)
-    }
-
     @discardableResult
-    private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool, boundary: Character? = nil) -> Bool {
+    private func applyCorrection(
+        word: String, wasRussian: Bool, replacePrefix: Bool, boundary: Character? = nil,
+        anchor: TextFieldController.WordAnchor? = nil
+    ) -> Bool {
         let converted = wasRussian ? TextConverter.toLatin(word) : TextConverter.toCyrillic(word)
 
-        if let element = textFieldController.focusedTextElement(),
-           !textFieldController.isOwnApp(element),
-           !textFieldController.isSecure(element),
-           textFieldController.isEditableText(element) {
-            let replaced: Bool
-            if replacePrefix {
-                replaced = textFieldController.replacePrefix(word, with: converted, in: element)
+        let axReplaced: Bool
+        if replacePrefix {
+            // Proactive path: replacePrefix operates on the word still
+            // being typed (no boundary yet). It's re-derived from the live
+            // cursor at fire time, same as always — the caller already
+            // guards `currentWord == word` before scheduling this, so a
+            // fast-typing mismatch bails before we get here.
+            if let element = textFieldController.focusedTextElement(),
+               !textFieldController.isOwnApp(element),
+               !textFieldController.isSecure(element),
+               textFieldController.isEditableText(element) {
+                axReplaced = textFieldController.replacePrefix(word, with: converted, in: element)
             } else {
-                replaced = textFieldController.replaceLastWord(word, with: converted, in: element)
+                axReplaced = false
             }
-            if replaced {
-                switchLayout(wasRussian: wasRussian)
-                return true
-            }
+        } else if let anchor {
+            // Retroactive path: anchor was captured synchronously when the
+            // boundary key landed, so it targets the right word even if the
+            // user has since started typing the next one.
+            axReplaced = textFieldController.replaceAnchoredWord(anchor, word: word, with: converted)
+        } else {
+            axReplaced = false
+        }
+
+        if axReplaced {
+            switchLayout(wasRussian: wasRussian)
+            return true
         }
 
         // AX replacement didn't take (no element, or the app reported

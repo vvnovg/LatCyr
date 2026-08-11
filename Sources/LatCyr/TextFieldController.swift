@@ -35,24 +35,64 @@ final class TextFieldController {
         text(of: element) != nil && selectedRange(of: element) != nil
     }
 
-    /// Replace the word immediately before the cursor with `replacement`.
-    func replaceLastWord(_ word: String, with replacement: String, in element: AXUIElement) -> Bool {
-        guard let text = text(of: element),
-              let range = selectedRange(of: element) else { return false }
+    /// Where a word sits in a text field, captured at a moment in time.
+    /// `range` is fixed (UTF-16 offsets); the cursor may since have moved
+    /// past it as the user kept typing — `replaceAnchoredWord` re-reads the
+    /// live cursor when it applies the edit.
+    struct WordAnchor {
+        let element: AXUIElement
+        let range: Range<Int>
+    }
+
+    /// Capture the position of the word immediately before the cursor, for
+    /// later use with `replaceAnchoredWord`. Capture early (right when the
+    /// boundary key is seen) rather than at correction time: `correctionDelay`
+    /// means correction happens ~50ms later, and if the user has since
+    /// started the next word without pausing, a cursor-relative lookup done
+    /// *then* would find the new word instead — silently failing to correct
+    /// the one this anchor is for. Returns nil if there's no AX-correctable
+    /// target (no focused element, own app, secure field, or the text right
+    /// before the cursor doesn't match `word` — e.g. a terminal, whose
+    /// visible content isn't a real AX value).
+    func captureWordAnchor(matching word: String) -> WordAnchor? {
+        guard let element = focusedTextElement(),
+              !isOwnApp(element),
+              !isSecure(element),
+              isEditableText(element),
+              let text = text(of: element),
+              let range = selectedRange(of: element) else { return nil }
         let cursor = range.location + range.length
         let utf16 = Array(text.utf16)
-        guard cursor >= 0, cursor <= utf16.count else { return false }
+        guard cursor >= 0, cursor <= utf16.count else { return nil }
 
         var end = cursor
         while end > 0 && isBoundary(utf16[end - 1]) { end -= 1 }
         var start = end
         while start > 0 && !isBoundary(utf16[start - 1]) { start -= 1 }
-        guard start < end else { return false }
+        guard start < end else { return nil }
 
         let actualWord = String(utf16CodeUnits: Array(utf16[start..<end]), count: end - start)
+        guard actualWord.lowercased() == word.lowercased() else { return nil }
+
+        return WordAnchor(element: element, range: start..<end)
+    }
+
+    /// Replace the word at `anchor` with `replacement`. Re-verifies the
+    /// text at `anchor.range` still matches `word` (something else may have
+    /// edited it since capture) and replaces using the *current* cursor
+    /// position, so the delta shift lands correctly even if the user has
+    /// typed more text after the anchored word in the meantime.
+    func replaceAnchoredWord(_ anchor: WordAnchor, word: String, with replacement: String) -> Bool {
+        guard let text = text(of: anchor.element),
+              let liveRange = selectedRange(of: anchor.element) else { return false }
+        let utf16 = Array(text.utf16)
+        guard anchor.range.upperBound <= utf16.count else { return false }
+
+        let actualWord = String(utf16CodeUnits: Array(utf16[anchor.range]), count: anchor.range.count)
         guard actualWord.lowercased() == word.lowercased() else { return false }
 
-        return replace(range: start..<end, with: replacement, in: element, utf16: utf16, cursor: cursor)
+        let cursor = liveRange.location + liveRange.length
+        return replace(range: anchor.range, with: replacement, in: anchor.element, utf16: utf16, cursor: cursor)
     }
 
     /// Replace the first `prefix.count` characters of the current word with
