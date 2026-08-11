@@ -194,10 +194,13 @@ final class InputMonitor {
             // key before this runs, so it's already on screen and the
             // cursor sits after it — deleting must eat the boundary too,
             // and the retyped text must put it back.
-            guard !boundary.isNewline else {
+            guard !boundary.isNewline, boundary != "\t" else {
                 // Enter already submitted the line to the shell; by now
                 // focus may have moved to a fresh prompt or a program the
-                // command launched. Injecting keystrokes there is unsafe.
+                // command launched. Tab is consumed by shell completion and
+                // echoes nothing (or rewrites the whole line) — either way
+                // it isn't the one extra on-screen character this arithmetic
+                // assumes. Injecting keystrokes in either case is unsafe.
                 return false
             }
             deleteCount = word.count + 1

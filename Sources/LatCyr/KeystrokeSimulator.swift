@@ -36,9 +36,11 @@ final class KeystrokeSimulator {
 
     /// Delete `count` characters immediately before the cursor, then type
     /// `replacement`, via tagged synthetic keyboard events. Returns `false`
-    /// if `count` is out of range or any event fails to post, so the caller
-    /// (InputMonitor) never switches the keyboard layout on top of a
-    /// failed/partial injection.
+    /// if `count` is out of range or any event fails to *construct*, so the
+    /// caller (InputMonitor) never switches the keyboard layout on top of a
+    /// definitely-failed injection. `CGEvent.post` itself is void and
+    /// reports nothing, so a `true` return means the events were
+    /// successfully posted, not that the target app visibly applied them.
     @discardableResult
     func correct(deleting count: Int, typing replacement: String) -> Bool {
         guard count >= 0, count <= Self.maxDeleteCount else { return false }
