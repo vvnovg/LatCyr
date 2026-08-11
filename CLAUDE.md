@@ -42,6 +42,7 @@ open dist/LatCyr.app                 # запуск собранного .app
 - **`LayoutManager.flagsToModifierState`:** `UCKeyTranslate` ждёт биты `kEventKeyModifier*` (Shift = 0x0002), а не legacy Carbon-биты; эффективный Shift = shift XOR capsLock (на macOS Shift отменяет CapsLock). Смена раскладки ищет первый источник с нужным `inputSourceID` (содержит "russian" / "us", "abc", "british" и т.д.).
 - **Пороги эвристики** (`russianThreshold`, `englishThreshold`, `diffThreshold`, `minWordLength`, `runPenalty`, сигнальные буквы) — настраиваются **в коде**, UI настроек в v1 нет. Слова короче 3 символов ретроактивно не исправляются.
 - **Курсор после замены:** `TextFieldController.replace` сдвигает курсор на дельту длины замены, чтобы он остался после завершающего пробела — следующее слово не вставится перед ним.
+- **`TextConverter.ambiguousLetterSymbols`** (`` ` `` `,` `.` `;` `'` `[` `]`): физически это буквы (ё, х, ъ, ж, э, б, ю) на клавишах, которые в английской раскладке печатают пунктуацию. Границей слова не считаются — иначе, например, «ю» (клавиша `.`) обрывает буфер до того, как слово попадёт на проверку. `InputMonitor.handle` и `TextFieldController.isBoundary` должны трактовать этот набор одинаково — рассинхрон одного места ломает либо накопление буфера, либо поиск слова в реальном тексте для замены.
 
 ## Тесты
 

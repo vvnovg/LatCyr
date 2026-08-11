@@ -82,6 +82,13 @@ final class TextFieldController {
             + replacement
             + String(utf16CodeUnits: Array(utf16[range.upperBound..<utf16.count]), count: utf16.count - range.upperBound)
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef) == .success else { return false }
+        // Some apps (terminals, some Electron/web-based editors) report
+        // .success for a value write without actually applying it — their
+        // AX bridge accepts the call but the underlying view keeps its own
+        // state. Read the value back to confirm the write really landed;
+        // otherwise the caller would switch the layout on top of text that
+        // was never corrected.
+        guard text(of: element) == newText else { return false }
         // Preserve the cursor's position relative to the text: shift it by the
         // length change of the replaced range. This keeps the cursor after any
         // trailing whitespace (e.g. the space that triggered the correction),
@@ -126,6 +133,7 @@ final class TextFieldController {
     private func isBoundary(_ unit: UInt16) -> Bool {
         guard let scalar = UnicodeScalar(unit) else { return true }
         let ch = Character(scalar)
+        if TextConverter.ambiguousLetterSymbols.contains(ch) { return false }
         return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline || ch.isNumber
     }
 }

@@ -85,7 +85,7 @@ final class InputMonitor {
             return
         }
 
-        if char.isLetter {
+        if char.isLetter || TextConverter.ambiguousLetterSymbols.contains(char) {
             if currentWord.isEmpty {
                 currentLayoutIsRussian = layoutManager.isRussian
             }

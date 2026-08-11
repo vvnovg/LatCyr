@@ -112,7 +112,7 @@ public enum LanguageDetector {
     public static func isWrongLayout(word: String, currentLayoutIsRussian: Bool) -> Bool {
         let lower = word.lowercased()
         guard lower.count >= minWordLength else { return false }
-        guard lower.allSatisfy({ $0.isLetter }) else { return false }
+        guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols.contains($0) }) else { return false }
 
         if currentLayoutIsRussian {
             let converted = TextConverter.toLatin(lower)

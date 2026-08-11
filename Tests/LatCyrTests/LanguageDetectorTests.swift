@@ -9,6 +9,14 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ntcn", currentLayoutIsRussian: false))    // тест
     }
 
+    // Words containing letters typed via a punctuation key (ё, х, ъ, ж, э,
+    // б, ю share a physical key with `, [, ], ;, ', ,, .) must still be
+    // detected as a whole, not cut short at the punctuation character.
+    func testWordWithAmbiguousPunctuationLetter() {
+        XCTAssertEqual(TextConverter.toCyrillic("ndj."), "твою")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ndj.", currentLayoutIsRussian: false)) // твою
+    }
+
     // English typed in Russian layout → detect
     func testEnglishTypedInRussianLayout() {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "руддщ", currentLayoutIsRussian: true))   // hello

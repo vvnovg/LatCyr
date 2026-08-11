@@ -21,6 +21,13 @@ public enum TextConverter {
         return result
     }()
 
+    /// Latin punctuation keys that produce a Cyrillic *letter* (ё, х, ъ, ж,
+    /// э, б, ю) on the same physical key. When the English layout is active
+    /// but the user means Russian, these arrive as punctuation, not letters
+    /// — callers that walk a word character-by-character need to treat them
+    /// as letters too, or the word buffer breaks before the last letter.
+    public static let ambiguousLetterSymbols: Set<Character> = ["`", ",", ".", ";", "'", "[", "]"]
+
     public static func toCyrillic(_ text: String) -> String {
         convert(text, using: latinToCyrillic)
     }
