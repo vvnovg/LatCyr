@@ -8,6 +8,7 @@ import Foundation
 final class InputMonitor {
     private let layoutManager = LayoutManager()
     private let textFieldController = TextFieldController()
+    private let keystrokeSimulator = KeystrokeSimulator()
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -67,6 +68,9 @@ final class InputMonitor {
 
     private func handle(event: CGEvent, type: CGEventType) {
         guard type == .keyDown else { return }
+        // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
+        // otherwise they'd corrupt the word buffer or re-trigger correction.
+        guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return }
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         // Skip shortcuts (Cmd/Ctrl held).
@@ -141,25 +145,40 @@ final class InputMonitor {
     @discardableResult
     private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool) -> Bool {
         let converted = wasRussian ? TextConverter.toLatin(word) : TextConverter.toCyrillic(word)
-        guard let element = textFieldController.focusedTextElement(),
-              !textFieldController.isOwnApp(element),
-              !textFieldController.isSecure(element),
-              textFieldController.isEditableText(element) else { return false }
 
-        let replaced: Bool
-        if replacePrefix {
-            replaced = textFieldController.replacePrefix(word, with: converted, in: element)
-        } else {
-            replaced = textFieldController.replaceLastWord(word, with: converted, in: element)
+        if let element = textFieldController.focusedTextElement(),
+           !textFieldController.isOwnApp(element),
+           !textFieldController.isSecure(element),
+           textFieldController.isEditableText(element) {
+            let replaced: Bool
+            if replacePrefix {
+                replaced = textFieldController.replacePrefix(word, with: converted, in: element)
+            } else {
+                replaced = textFieldController.replaceLastWord(word, with: converted, in: element)
+            }
+            if replaced {
+                switchLayout(wasRussian: wasRussian)
+                return true
+            }
         }
-        guard replaced else { return false }
 
+        // AX replacement didn't take (no element, or the app reported
+        // success without applying it — e.g. a terminal's PTY-rendered
+        // view). Fall back to simulated keystrokes, restricted to known
+        // terminals: without an AX element we can't check isSecure/isOwnApp,
+        // so blindly injecting into arbitrary apps would be unsafe.
+        guard keystrokeSimulator.isTerminalFrontmost else { return false }
+        keystrokeSimulator.correct(deleting: word.count, typing: converted)
+        switchLayout(wasRussian: wasRussian)
+        return true
+    }
+
+    private func switchLayout(wasRussian: Bool) {
         if wasRussian {
             layoutManager.switchToEnglish()
         } else {
             layoutManager.switchToRussian()
         }
-        return true
     }
 
     private func isWordBoundary(_ char: Character) -> Bool {
