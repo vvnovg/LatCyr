@@ -116,6 +116,9 @@ final class InputMonitor {
                 scheduleProactiveCheck()
             }
         } else if isWordBoundary(char) {
+            if currentWord.isEmpty {
+                scheduleLeadingCharCheck(char)
+            }
             scheduleRetroactiveCheck(boundary: char)
             currentWord = ""
         } else {
@@ -130,6 +133,13 @@ final class InputMonitor {
         let wasRussian = currentLayoutIsRussian
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.performProactiveFix(word: word, wasRussian: wasRussian)
+        }
+    }
+
+    private func scheduleLeadingCharCheck(_ char: Character) {
+        let wasRussian = layoutManager.isRussian
+        DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
+            self?.performLeadingCharCheck(char: char, wasRussian: wasRussian)
         }
     }
 
@@ -153,6 +163,24 @@ final class InputMonitor {
         if applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: true) {
             currentWord = ""
         }
+    }
+
+    private func performLeadingCharCheck(char: Character, wasRussian: Bool) {
+        // Scope: terminal-only. Outside a terminal there's no strong reason
+        // to treat a bare "/" as "the user is about to type a path" — this
+        // reuses the same allowlist as the AX-replacement fallback.
+        guard keystrokeSimulator.isTerminalFrontmost else { return }
+        guard LanguageDetector.proactiveSingleCharSwitchSignal(
+            first: char, currentLayoutIsRussian: wasRussian
+        ) else { return }
+        // The character itself is already correct on screen (this isn't an
+        // ambiguous key — see CLAUDE.md) — only the layout needs fixing, so
+        // there's no text to replace and no AX/KeystrokeSimulator involved.
+        switchLayout(wasRussian: wasRussian)
+        // Drop whatever's accumulated since — it started under the layout
+        // we just left, and letting it mix with post-switch typing would
+        // feed a stale currentLayoutIsRussian into a later correction.
+        currentWord = ""
     }
 
     private func performRetroactiveFix(word: String, wasRussian: Bool, boundary: Character) {

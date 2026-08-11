@@ -54,6 +54,10 @@ public enum LanguageDetector {
     private static let strongEnglishSignals: Set<Character> = ["ф", "щ", "ш"]
     /// English 2-letter prefixes that must never trigger a proactive switch.
     private static let excludedEnglishPrefixes: Set<String> = ["by"]
+    /// The single leading character that, before any letter has been typed
+    /// while the Russian layout is active, strongly indicates an absolute
+    /// path is about to follow (terminal use only — see InputMonitor).
+    private static let leadingPathSignal: Character = "/"
 
     // MARK: - Scoring
 
@@ -145,5 +149,17 @@ public enum LanguageDetector {
             guard strongRussianSignals.contains(f) && strongRussianSignals.contains(s) else { return false }
             return !excludedEnglishPrefixes.contains("\(f)\(s)")
         }
+    }
+
+    /// Decide whether to switch layout immediately based on a single
+    /// leading character, before any letter has started the word — e.g.
+    /// "/" while the Russian layout is active, since an absolute path is
+    /// the overwhelmingly common reason to start typing with "/" and paths
+    /// are always Latin.
+    public static func proactiveSingleCharSwitchSignal(
+        first: Character,
+        currentLayoutIsRussian: Bool
+    ) -> Bool {
+        currentLayoutIsRussian && first == leadingPathSignal
     }
 }

@@ -61,6 +61,14 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.proactiveSwitchSignal(first: "а", second: "п", currentLayoutIsRussian: true))
     }
 
+    // Proactive: leading "/" while Russian is active signals an about-to-be-
+    // typed path (terminal-only scope is enforced in InputMonitor, not here).
+    func testProactiveSingleCharSwitchToEnglish() {
+        XCTAssertTrue(LanguageDetector.proactiveSingleCharSwitchSignal(first: "/", currentLayoutIsRussian: true))
+        XCTAssertFalse(LanguageDetector.proactiveSingleCharSwitchSignal(first: "/", currentLayoutIsRussian: false))
+        XCTAssertFalse(LanguageDetector.proactiveSingleCharSwitchSignal(first: "a", currentLayoutIsRussian: true))
+    }
+
     // Scores
     func testScores() {
         XCTAssertGreaterThan(LanguageDetector.russianScore("привет"), 0.4)
