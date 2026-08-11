@@ -122,6 +122,6 @@ final class TextFieldController {
     private func isBoundary(_ unit: UInt16) -> Bool {
         guard let scalar = UnicodeScalar(unit) else { return true }
         let ch = Character(scalar)
-        return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline
+        return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline || ch.isNumber
     }
 }

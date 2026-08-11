@@ -125,8 +125,12 @@ final class InputMonitor {
         guard LanguageDetector.proactiveSwitchSignal(
             first: chars[0], second: chars[1], currentLayoutIsRussian: wasRussian
         ) else { return }
-        applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: true)
-        currentWord = ""
+        // Fast-typing guard: if the buffer has grown past the captured word,
+        // bail and let the retroactive path handle the full word.
+        guard currentWord == word else { return }
+        if applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: true) {
+            currentWord = ""
+        }
     }
 
     private func performRetroactiveFix(word: String, wasRussian: Bool) {
@@ -134,24 +138,28 @@ final class InputMonitor {
         applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false)
     }
 
-    private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool) {
+    @discardableResult
+    private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool) -> Bool {
         let converted = wasRussian ? TextConverter.toLatin(word) : TextConverter.toCyrillic(word)
         guard let element = textFieldController.focusedTextElement(),
               !textFieldController.isOwnApp(element),
               !textFieldController.isSecure(element),
-              textFieldController.isEditableText(element) else { return }
+              textFieldController.isEditableText(element) else { return false }
+
+        let replaced: Bool
+        if replacePrefix {
+            replaced = textFieldController.replacePrefix(word, with: converted, in: element)
+        } else {
+            replaced = textFieldController.replaceLastWord(word, with: converted, in: element)
+        }
+        guard replaced else { return false }
 
         if wasRussian {
             layoutManager.switchToEnglish()
         } else {
             layoutManager.switchToRussian()
         }
-
-        if replacePrefix {
-            _ = textFieldController.replacePrefix(word, with: converted, in: element)
-        } else {
-            _ = textFieldController.replaceLastWord(word, with: converted, in: element)
-        }
+        return true
     }
 
     private func isWordBoundary(_ char: Character) -> Bool {
