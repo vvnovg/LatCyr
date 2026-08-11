@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         if permissionManager.isFullyAuthorized {
             setEnabled(true)
+            rebuildMenu() // menu was built with enabled=false; refresh to show "включено"
         } else {
             promptForPermissions()
         }
@@ -89,6 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setEnabled(_ value: Bool) {
+        // Never report "включено" while the monitor cannot actually run.
+        if value && !permissionManager.isFullyAuthorized {
+            promptForPermissions()
+            return
+        }
         enabled = value
         if value {
             inputMonitor.start()
