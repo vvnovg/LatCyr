@@ -52,7 +52,7 @@ final class TextFieldController {
         let actualWord = String(utf16CodeUnits: Array(utf16[start..<end]), count: end - start)
         guard actualWord.lowercased() == word.lowercased() else { return false }
 
-        return replace(range: start..<end, with: replacement, in: element, utf16: utf16)
+        return replace(range: start..<end, with: replacement, in: element, utf16: utf16, cursor: cursor)
     }
 
     /// Replace the first `prefix.count` characters of the current word with
@@ -72,17 +72,21 @@ final class TextFieldController {
         let actualPrefix = String(utf16CodeUnits: Array(utf16[start..<prefixEnd]), count: prefix.utf16.count)
         guard actualPrefix.lowercased() == prefix.lowercased() else { return false }
 
-        return replace(range: start..<prefixEnd, with: replacement, in: element, utf16: utf16)
+        return replace(range: start..<prefixEnd, with: replacement, in: element, utf16: utf16, cursor: cursor)
     }
 
     // MARK: - Private
 
-    private func replace(range: Range<Int>, with replacement: String, in element: AXUIElement, utf16: [UInt16]) -> Bool {
+    private func replace(range: Range<Int>, with replacement: String, in element: AXUIElement, utf16: [UInt16], cursor: Int) -> Bool {
         let newText = String(utf16CodeUnits: Array(utf16[0..<range.lowerBound]), count: range.lowerBound)
             + replacement
             + String(utf16CodeUnits: Array(utf16[range.upperBound..<utf16.count]), count: utf16.count - range.upperBound)
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef) == .success else { return false }
-        let newCursor = range.lowerBound + replacement.utf16.count
+        // Preserve the cursor's position relative to the text: shift it by the
+        // length change of the replaced range. This keeps the cursor after any
+        // trailing whitespace (e.g. the space that triggered the correction),
+        // so the next word is not inserted before it.
+        let newCursor = cursor + (replacement.utf16.count - range.count)
         return setCursor(newCursor, in: element)
     }
 

@@ -91,12 +91,19 @@ final class LayoutManager {
     }
 
     private func flagsToModifierState(_ flags: CGEventFlags) -> UInt32 {
+        // UCKeyTranslate expects the kEventKeyModifier* bit format (Shift =
+        // 0x0002, Control = 0x0004, ...), not the legacy Carbon shiftKey/
+        // alphaLock bits — the legacy bits are ignored and case is lost.
+        // CapsLock toggles the effective Shift: on macOS, Shift + CapsLock
+        // yields lowercase (Shift cancels CapsLock), so effective shift =
+        // shift XOR capsLock.
         var state: UInt32 = 0
-        if flags.contains(.maskShift) { state |= UInt32(shiftKey) }
-        if flags.contains(.maskControl) { state |= UInt32(controlKey) }
-        if flags.contains(.maskAlternate) { state |= UInt32(optionKey) }
-        if flags.contains(.maskCommand) { state |= UInt32(cmdKey) }
-        if flags.contains(.maskAlphaShift) { state |= UInt32(alphaLock) }
+        let capsLock = flags.contains(.maskAlphaShift)
+        let shift = flags.contains(.maskShift)
+        if shift != capsLock { state |= 0x0002 }  // kEventKeyModifierShift
+        if flags.contains(.maskControl) { state |= 0x0004 }  // kEventKeyModifierControl
+        if flags.contains(.maskAlternate) { state |= 0x0008 }  // kEventKeyModifierOption
+        if flags.contains(.maskCommand) { state |= 0x0010 }  // kEventKeyModifierCommand
         return state
     }
 }
