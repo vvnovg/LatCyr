@@ -17,6 +17,11 @@ final class KeystrokeSimulator {
     /// kVK_Delete — physical Backspace key.
     private static let backspaceKeyCode: CGKeyCode = 51
 
+    /// Safety cap on blind, unverified deletion: this class has no readback
+    /// like the AX path does, so a runaway count must be refused rather than
+    /// injected.
+    private static let maxDeleteCount = 64
+
     private static let terminalBundleIDs: Set<String> = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
@@ -30,32 +35,53 @@ final class KeystrokeSimulator {
     }
 
     /// Delete `count` characters immediately before the cursor, then type
-    /// `replacement`, via tagged synthetic keyboard events.
-    func correct(deleting count: Int, typing replacement: String) {
+    /// `replacement`, via tagged synthetic keyboard events. Returns `false`
+    /// if `count` is out of range or any event fails to post, so the caller
+    /// (InputMonitor) never switches the keyboard layout on top of a
+    /// failed/partial injection.
+    @discardableResult
+    func correct(deleting count: Int, typing replacement: String) -> Bool {
+        guard count >= 0, count <= Self.maxDeleteCount else { return false }
         for _ in 0..<count {
-            postKeyPress(keyCode: Self.backspaceKeyCode)
+            guard postKeyPress(keyCode: Self.backspaceKeyCode) else { return false }
         }
-        postUnicodeString(replacement)
+        return postUnicodeString(replacement)
     }
 
     // MARK: - Private
 
-    private func postKeyPress(keyCode: CGKeyCode) {
-        for isDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: isDown) else { continue }
-            event.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
-            event.post(tap: .cgSessionEventTap)
+    private func postKeyPress(keyCode: CGKeyCode) -> Bool {
+        // Build both events before posting either, so a construction
+        // failure on keyUp never leaves an unpaired keyDown posted.
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            return false
         }
+        down.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
+        up.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+        return true
     }
 
-    private func postUnicodeString(_ string: String) {
+    private func postUnicodeString(_ string: String) -> Bool {
         let utf16 = Array(string.utf16)
-        guard !utf16.isEmpty else { return }
-        for isDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: isDown) else { continue }
-            event.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
-            event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
-            event.post(tap: .cgSessionEventTap)
+        guard !utf16.isEmpty else { return true }
+        // virtualKey: 0 is a placeholder carrier for keyboardSetUnicodeString,
+        // which overrides the delivered character with the Unicode payload;
+        // an app that reads the keycode instead would see whatever key 0
+        // maps to under the layout active at that moment — not a concern
+        // for Terminal.app/iTerm2, which read the Unicode string.
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
+            return false
         }
+        down.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
+        up.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
+        down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+        up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+        return true
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -12,6 +13,7 @@ final class InputMonitor {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var appActivationObserver: NSObjectProtocol?
     private(set) var isRunning = false
 
     // Word buffer state
@@ -48,6 +50,18 @@ final class InputMonitor {
         }
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true
+
+        // The word buffer isn't bound to the app it was typed in — a mouse-
+        // driven focus change fires no keystroke. Reset it on every app
+        // switch so a stale word from another app can't drive a correction
+        // (e.g. the terminal fallback) against text it was never typed into.
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.currentWord = ""
+        }
     }
 
     func stop() {
@@ -58,8 +72,12 @@ final class InputMonitor {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
+        if let appActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
+        }
         eventTap = nil
         runLoopSource = nil
+        appActivationObserver = nil
         isRunning = false
         currentWord = ""
     }
@@ -98,7 +116,7 @@ final class InputMonitor {
                 scheduleProactiveCheck()
             }
         } else if isWordBoundary(char) {
-            scheduleRetroactiveCheck()
+            scheduleRetroactiveCheck(boundary: char)
             currentWord = ""
         } else {
             currentWord = ""
@@ -115,11 +133,11 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck() {
+    private func scheduleRetroactiveCheck(boundary: Character) {
         let word = currentWord
         let wasRussian = currentLayoutIsRussian
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.performRetroactiveFix(word: word, wasRussian: wasRussian)
+            self?.performRetroactiveFix(word: word, wasRussian: wasRussian, boundary: boundary)
         }
     }
 
@@ -137,13 +155,13 @@ final class InputMonitor {
         }
     }
 
-    private func performRetroactiveFix(word: String, wasRussian: Bool) {
+    private func performRetroactiveFix(word: String, wasRussian: Bool, boundary: Character) {
         guard LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: wasRussian) else { return }
-        applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false)
+        applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false, boundary: boundary)
     }
 
     @discardableResult
-    private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool) -> Bool {
+    private func applyCorrection(word: String, wasRussian: Bool, replacePrefix: Bool, boundary: Character? = nil) -> Bool {
         let converted = wasRussian ? TextConverter.toLatin(word) : TextConverter.toCyrillic(word)
 
         if let element = textFieldController.focusedTextElement(),
@@ -168,7 +186,27 @@ final class InputMonitor {
         // terminals: without an AX element we can't check isSecure/isOwnApp,
         // so blindly injecting into arbitrary apps would be unsafe.
         guard keystrokeSimulator.isTerminalFrontmost else { return false }
-        keystrokeSimulator.correct(deleting: word.count, typing: converted)
+
+        let deleteCount: Int
+        let typed: String
+        if let boundary {
+            // correctionDelay deliberately let the app process the boundary
+            // key before this runs, so it's already on screen and the
+            // cursor sits after it — deleting must eat the boundary too,
+            // and the retyped text must put it back.
+            guard !boundary.isNewline else {
+                // Enter already submitted the line to the shell; by now
+                // focus may have moved to a fresh prompt or a program the
+                // command launched. Injecting keystrokes there is unsafe.
+                return false
+            }
+            deleteCount = word.count + 1
+            typed = converted + String(boundary)
+        } else {
+            deleteCount = word.count
+            typed = converted
+        }
+        guard keystrokeSimulator.correct(deleting: deleteCount, typing: typed) else { return false }
         switchLayout(wasRussian: wasRussian)
         return true
     }
