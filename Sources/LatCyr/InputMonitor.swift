@@ -30,6 +30,7 @@ final class InputMonitor {
     // Word buffer state
     private var currentWord = ""
     private var currentLayoutIsRussian = false
+    private var currentRussianVariant: TextConverter.RussianKeyboardVariant = .pc
 
     /// Delay before applying a correction, letting the app process the
     /// boundary key first. Tunable.
@@ -118,9 +119,15 @@ final class InputMonitor {
             return
         }
 
-        if char.isLetter || TextConverter.ambiguousLetterSymbols(for: .pc).contains(char) {
+        // Read live, not from the stored field: on the very first character
+        // of a new word this runs before currentRussianVariant is captured
+        // below, and using a stale value here (from the *previous* word)
+        // could misclassify a genuinely-ambiguous key if the user switched
+        // Russian variants between words.
+        if char.isLetter || TextConverter.ambiguousLetterSymbols(for: layoutManager.currentRussianVariant).contains(char) {
             if currentWord.isEmpty {
                 currentLayoutIsRussian = layoutManager.isRussian
+                currentRussianVariant = layoutManager.currentRussianVariant
             }
             currentWord.append(char)
             if currentWord.count == 2 {
@@ -129,8 +136,8 @@ final class InputMonitor {
         } else if isWordBoundary(char) {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
-            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: .pc) {
-                scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, boundary: char)
+            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: currentRussianVariant) {
+                scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
             }
             currentWord = ""
         } else {
@@ -143,8 +150,9 @@ final class InputMonitor {
     private func scheduleProactiveCheck() {
         let word = currentWord
         let wasRussian = currentLayoutIsRussian
+        let variant = currentRussianVariant
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.performProactiveFix(word: word, wasRussian: wasRussian)
+            self?.performProactiveFix(word: word, wasRussian: wasRussian, variant: variant)
         }
     }
 
@@ -155,7 +163,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, wasRussian: Bool, boundary: Character) {
+    private func scheduleRetroactiveCheck(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -163,13 +171,13 @@ final class InputMonitor {
         // to correct it (see WordAnchor's doc comment). nil is fine here:
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
-        let anchor = textFieldController.captureWordAnchor(matching: word)
+        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: false, boundary: boundary, anchor: anchor)
+            self?.applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: anchor)
         }
     }
 
-    private func performProactiveFix(word: String, wasRussian: Bool) {
+    private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) {
         guard word.count == 2 else { return }
         let chars = Array(word)
         guard LanguageDetector.proactiveSwitchSignal(
@@ -178,7 +186,7 @@ final class InputMonitor {
         // Fast-typing guard: if the buffer has grown past the captured word,
         // bail and let the retroactive path handle the full word.
         guard currentWord == word else { return }
-        if applyCorrection(word: word, wasRussian: wasRussian, replacePrefix: true) {
+        if applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
             currentWord = ""
         }
     }
@@ -203,10 +211,10 @@ final class InputMonitor {
 
     @discardableResult
     private func applyCorrection(
-        word: String, wasRussian: Bool, replacePrefix: Bool, boundary: Character? = nil,
-        anchor: TextFieldController.WordAnchor? = nil
+        word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
+        boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil
     ) -> Bool {
-        let converted = wasRussian ? TextConverter.toLatin(word, variant: .pc) : TextConverter.toCyrillic(word, variant: .pc)
+        let converted = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
 
         let axReplaced: Bool
         if replacePrefix {
@@ -219,7 +227,7 @@ final class InputMonitor {
                !textFieldController.isOwnApp(element),
                !textFieldController.isSecure(element),
                textFieldController.isEditableText(element) {
-                axReplaced = textFieldController.replacePrefix(word, with: converted, in: element)
+                axReplaced = textFieldController.replacePrefix(word, with: converted, in: element, variant: variant)
             } else {
                 axReplaced = false
             }

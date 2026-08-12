@@ -67,7 +67,7 @@ final class TextFieldController {
     /// target (no focused element, own app, secure field, or the text right
     /// before the cursor doesn't match `word` — e.g. a terminal, whose
     /// visible content isn't a real AX value).
-    func captureWordAnchor(matching word: String) -> WordAnchor? {
+    func captureWordAnchor(matching word: String, variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
         guard let element = focusedTextElement(),
               !isOwnApp(element),
               !isSecure(element),
@@ -79,9 +79,9 @@ final class TextFieldController {
         guard cursor >= 0, cursor <= utf16.count else { return nil }
 
         var end = cursor
-        while end > 0 && isBoundary(utf16[end - 1]) { end -= 1 }
+        while end > 0 && isBoundary(utf16[end - 1], variant: variant) { end -= 1 }
         var start = end
-        while start > 0 && !isBoundary(utf16[start - 1]) { start -= 1 }
+        while start > 0 && !isBoundary(utf16[start - 1], variant: variant) { start -= 1 }
         guard start < end else { return nil }
 
         let actualWord = String(utf16CodeUnits: Array(utf16[start..<end]), count: end - start)
@@ -110,7 +110,7 @@ final class TextFieldController {
 
     /// Replace the first `prefix.count` characters of the current word with
     /// `replacement` (used by the proactive path).
-    func replacePrefix(_ prefix: String, with replacement: String, in element: AXUIElement) -> Bool {
+    func replacePrefix(_ prefix: String, with replacement: String, in element: AXUIElement, variant: TextConverter.RussianKeyboardVariant) -> Bool {
         guard let text = text(of: element),
               let range = selectedRange(of: element) else { return false }
         let cursor = range.location + range.length
@@ -118,7 +118,7 @@ final class TextFieldController {
         guard cursor >= 0, cursor <= utf16.count else { return false }
 
         var start = cursor
-        while start > 0 && !isBoundary(utf16[start - 1]) { start -= 1 }
+        while start > 0 && !isBoundary(utf16[start - 1], variant: variant) { start -= 1 }
         let prefixEnd = start + prefix.utf16.count
         guard prefixEnd <= utf16.count else { return false }
 
@@ -183,10 +183,10 @@ final class TextFieldController {
         return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
     }
 
-    private func isBoundary(_ unit: UInt16) -> Bool {
+    private func isBoundary(_ unit: UInt16, variant: TextConverter.RussianKeyboardVariant) -> Bool {
         guard let scalar = UnicodeScalar(unit) else { return true }
         let ch = Character(scalar)
-        if TextConverter.ambiguousLetterSymbols(for: .pc).contains(ch) { return false }
+        if TextConverter.ambiguousLetterSymbols(for: variant).contains(ch) { return false }
         return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline || ch.isNumber
     }
 }
