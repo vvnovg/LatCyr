@@ -22,16 +22,26 @@ final class KeystrokeSimulator {
     /// injected.
     private static let maxDeleteCount = 64
 
-    private static let terminalBundleIDs: Set<String> = [
+    /// Not private: AppDelegate checks this list before offering to
+    /// register an app as hybrid, so it doesn't suggest adding one that's
+    /// already covered.
+    static let terminalBundleIDs: Set<String> = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
     ]
 
-    /// Whether the frontmost application is a known terminal that doesn't
-    /// support AX-based text replacement.
-    var isTerminalFrontmost: Bool {
+    private let hybridAppStore: HybridAppStore
+
+    init(hybridAppStore: HybridAppStore) {
+        self.hybridAppStore = hybridAppStore
+    }
+
+    /// Whether the frontmost application is a known terminal or a
+    /// user-registered hybrid app — either way, AX-based text replacement
+    /// doesn't work and keystroke injection is the only option.
+    var usesKeystrokeFallback: Bool {
         guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
-        return Self.terminalBundleIDs.contains(id)
+        return Self.terminalBundleIDs.contains(id) || hybridAppStore.contains(id)
     }
 
     /// Delete `count` characters immediately before the cursor, then type

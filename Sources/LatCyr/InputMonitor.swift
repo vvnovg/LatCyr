@@ -9,12 +9,23 @@ import Foundation
 final class InputMonitor {
     private let layoutManager = LayoutManager()
     private let textFieldController = TextFieldController()
-    private let keystrokeSimulator = KeystrokeSimulator()
+    private let keystrokeSimulator: KeystrokeSimulator
+    /// Exposed (not private) so AppDelegate's menu actions can add words —
+    /// adding an exception must work whether or not the monitor is running.
+    let exceptionStore = ExceptionStore()
+    /// Same reasoning as exceptionStore.
+    let hybridAppStore = HybridAppStore()
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var appActivationObserver: NSObjectProtocol?
     private(set) var isRunning = false
+
+    init() {
+        keystrokeSimulator = KeystrokeSimulator(hybridAppStore: hybridAppStore)
+        exceptionStore.load()
+        hybridAppStore.load()
+    }
 
     // Word buffer state
     private var currentWord = ""
@@ -118,7 +129,7 @@ final class InputMonitor {
         } else if isWordBoundary(char) {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
-            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: []) {
+            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words) {
                 scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, boundary: char)
             }
             currentWord = ""
@@ -176,7 +187,7 @@ final class InputMonitor {
         // Scope: terminal-only. Outside a terminal there's no strong reason
         // to treat a bare "/" as "the user is about to type a path" — this
         // reuses the same allowlist as the AX-replacement fallback.
-        guard keystrokeSimulator.isTerminalFrontmost else { return }
+        guard keystrokeSimulator.usesKeystrokeFallback else { return }
         guard LanguageDetector.proactiveSingleCharSwitchSignal(
             first: char, currentLayoutIsRussian: wasRussian
         ) else { return }
@@ -231,7 +242,7 @@ final class InputMonitor {
         // view). Fall back to simulated keystrokes, restricted to known
         // terminals: without an AX element we can't check isSecure/isOwnApp,
         // so blindly injecting into arbitrary apps would be unsafe.
-        guard keystrokeSimulator.isTerminalFrontmost else { return false }
+        guard keystrokeSimulator.usesKeystrokeFallback else { return false }
 
         let deleteCount: Int
         let typed: String
