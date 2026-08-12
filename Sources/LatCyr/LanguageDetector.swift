@@ -121,11 +121,11 @@ public enum LanguageDetector {
     ) -> Bool {
         let lower = word.lowercased()
         guard lower.count >= minWordLength else { return false }
-        guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols.contains($0) }) else { return false }
+        guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: .pc).contains($0) }) else { return false }
 
         if exceptions.contains(lower) { return false }
 
-        let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower) : TextConverter.toCyrillic(lower)
+        let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower, variant: .pc) : TextConverter.toCyrillic(lower, variant: .pc)
         if exceptions.contains(converted) { return true }
 
         if currentLayoutIsRussian {

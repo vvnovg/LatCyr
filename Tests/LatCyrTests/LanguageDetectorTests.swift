@@ -13,7 +13,7 @@ final class LanguageDetectorTests: XCTestCase {
     // б, ю share a physical key with `, [, ], ;, ', ,, .) must still be
     // detected as a whole, not cut short at the punctuation character.
     func testWordWithAmbiguousPunctuationLetter() {
-        XCTAssertEqual(TextConverter.toCyrillic("ndj."), "твою")
+        XCTAssertEqual(TextConverter.toCyrillic("ndj.", variant: .pc), "твою")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ndj.", currentLayoutIsRussian: false, exceptions: [])) // твою
     }
 
@@ -60,7 +60,7 @@ final class LanguageDetectorTests: XCTestCase {
     // "ssl"): both scores are too low for the ordinary heuristic to catch
     // it — exactly what the forced-correction half fixes.
     func testExceptionWordAlwaysCorrected() {
-        XCTAssertEqual(TextConverter.toLatin("ыыд"), "ssl")
+        XCTAssertEqual(TextConverter.toLatin("ыыд", variant: .pc), "ssl")
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: []))
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: ["ssl"]))
     }
@@ -71,7 +71,7 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: []))
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: ["ффф"]))
 
-        XCTAssertEqual(TextConverter.toCyrillic("dep"), "вуз")
+        XCTAssertEqual(TextConverter.toCyrillic("dep", variant: .pc), "вуз")
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: []))
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: ["вуз"]))
     }

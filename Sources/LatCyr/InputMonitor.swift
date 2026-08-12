@@ -118,7 +118,7 @@ final class InputMonitor {
             return
         }
 
-        if char.isLetter || TextConverter.ambiguousLetterSymbols.contains(char) {
+        if char.isLetter || TextConverter.ambiguousLetterSymbols(for: .pc).contains(char) {
             if currentWord.isEmpty {
                 currentLayoutIsRussian = layoutManager.isRussian
             }
@@ -206,7 +206,7 @@ final class InputMonitor {
         word: String, wasRussian: Bool, replacePrefix: Bool, boundary: Character? = nil,
         anchor: TextFieldController.WordAnchor? = nil
     ) -> Bool {
-        let converted = wasRussian ? TextConverter.toLatin(word) : TextConverter.toCyrillic(word)
+        let converted = wasRussian ? TextConverter.toLatin(word, variant: .pc) : TextConverter.toCyrillic(word, variant: .pc)
 
         let axReplaced: Bool
         if replacePrefix {

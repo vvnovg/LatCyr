@@ -186,7 +186,7 @@ final class TextFieldController {
     private func isBoundary(_ unit: UInt16) -> Bool {
         guard let scalar = UnicodeScalar(unit) else { return true }
         let ch = Character(scalar)
-        if TextConverter.ambiguousLetterSymbols.contains(ch) { return false }
+        if TextConverter.ambiguousLetterSymbols(for: .pc).contains(ch) { return false }
         return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline || ch.isNumber
     }
 }
