@@ -194,7 +194,7 @@ Expected: FAIL to build — `extra argument 'exceptions' in call`
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian) {
 ```
 
-на (временный литерал — заменится на реальный стор в Task 6):
+на (временный литерал — заменится на реальный стор в Task 5):
 
 ```swift
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: []) {
@@ -328,7 +328,7 @@ git commit -m "feat: bundle default IT-term exception list into the app package"
   - `ExceptionStore.load()`
   - `ExceptionStore.contains(_ word: String) -> Bool`
   - `ExceptionStore.add(_ word: String) -> Bool`
-  - `ExceptionStore.init(bundledURL: URL?, dynamicURL: URL)` — используется Task 6 (`InputMonitor`).
+  - `ExceptionStore.init(bundledURL: URL?, dynamicURL: URL)` — используется Task 5 (`InputMonitor`).
 
 - [ ] **Step 1: Создать `Sources/LatCyr/LineFile.swift`**
 
@@ -450,7 +450,7 @@ git commit -m "feat: add ExceptionStore for user- and bundle-provided exception 
   - `HybridAppStore.load()`
   - `HybridAppStore.contains(_ bundleID: String) -> Bool`
   - `HybridAppStore.add(_ bundleID: String) -> Bool`
-  - `HybridAppStore.init(dynamicURL: URL)` — используется Task 5/6.
+  - `HybridAppStore.init(dynamicURL: URL)` — используется Task 5.
 
 - [ ] **Step 1: Создать `Sources/LatCyr/HybridAppStore.swift`**
 
@@ -509,14 +509,19 @@ git commit -m "feat: add HybridAppStore for user-registered keystroke-fallback a
 
 ---
 
-## Task 5: `KeystrokeSimulator` — `usesKeystrokeFallback` + `HybridAppStore`
+## Task 5: `KeystrokeSimulator` (`usesKeystrokeFallback`) + `InputMonitor` — владение сторами, реальная проводка
+
+Объединяет переименование `KeystrokeSimulator.isTerminalFrontmost` и полную проводку `InputMonitor` в одну задачу: по отдельности они не собираются (см. предыдущую ревизию плана) — `InputMonitor` создаёт `KeystrokeSimulator` и обязан передать ему `hybridAppStore` в том же коммите, где меняется сигнатура инициализатора.
 
 **Files:**
 - Modify: `Sources/LatCyr/KeystrokeSimulator.swift`
+- Modify: `Sources/LatCyr/InputMonitor.swift`
 
 **Interfaces:**
-- Consumes: `HybridAppStore.contains(_:)` (Task 4).
-- Produces: `KeystrokeSimulator.init(hybridAppStore: HybridAppStore)`, `KeystrokeSimulator.usesKeystrokeFallback: Bool` (замена `isTerminalFrontmost`), `KeystrokeSimulator.terminalBundleIDs` (доступность меняется на internal — используется Task 8).
+- Consumes: `HybridAppStore.contains(_:)` / `.load()` (Task 4), `ExceptionStore.load()` / `.words` (Task 3).
+- Produces:
+  - `KeystrokeSimulator.init(hybridAppStore: HybridAppStore)`, `KeystrokeSimulator.usesKeystrokeFallback: Bool` (замена `isTerminalFrontmost`), `KeystrokeSimulator.terminalBundleIDs` (доступность меняется на internal — используется Task 7).
+  - `InputMonitor.exceptionStore: ExceptionStore` (internal, не private — читает `AppDelegate` в Task 7), `InputMonitor.hybridAppStore: HybridAppStore` (то же).
 
 - [ ] **Step 1: Обновить `Sources/LatCyr/KeystrokeSimulator.swift`**
 
@@ -562,32 +567,7 @@ git commit -m "feat: add HybridAppStore for user-registered keystroke-fallback a
     }
 ```
 
-- [ ] **Step 2: Собрать проект (ожидаемо не соберётся — `InputMonitor` ещё создаёт `KeystrokeSimulator()` без аргумента)**
-
-Run: `swift build`
-Expected: FAIL — `missing argument for parameter 'hybridAppStore' in call`, а также два места использования `isTerminalFrontmost`, которых больше не существует. Это ожидаемо — исправляется в Task 6.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add Sources/LatCyr/KeystrokeSimulator.swift
-git commit -m "feat: rename KeystrokeSimulator.isTerminalFrontmost to usesKeystrokeFallback and add hybrid app support"
-```
-
-(Коммит осознанно оставляет пакет не собирающимся — следующий task чинит оба вызывающих места. Это единственная точка плана, где это допустимо, т.к. Task 5 и Task 6 механически неразделимы без временных заглушек, которые пришлось бы тут же убирать.)
-
----
-
-## Task 6: `InputMonitor` — владение сторами, реальная проводка
-
-**Files:**
-- Modify: `Sources/LatCyr/InputMonitor.swift`
-
-**Interfaces:**
-- Consumes: `ExceptionStore` (Task 3), `HybridAppStore` (Task 4), `KeystrokeSimulator.init(hybridAppStore:)` / `.usesKeystrokeFallback` (Task 5).
-- Produces: `InputMonitor.exceptionStore: ExceptionStore` (internal, не private — читает `AppDelegate` в Task 8), `InputMonitor.hybridAppStore: HybridAppStore` (то же).
-
-- [ ] **Step 1: Обновить объявление свойств и добавить `init()`**
+- [ ] **Step 2: Обновить объявление свойств `InputMonitor` и добавить `init()`**
 
 В `Sources/LatCyr/InputMonitor.swift`, замени строки 9-17:
 
@@ -628,7 +608,7 @@ final class InputMonitor {
     }
 ```
 
-- [ ] **Step 2: Обновить два вызова `isTerminalFrontmost`**
+- [ ] **Step 3: Обновить два вызова `isTerminalFrontmost`**
 
 В `Sources/LatCyr/InputMonitor.swift:179`, замени:
 
@@ -654,7 +634,7 @@ final class InputMonitor {
         guard keystrokeSimulator.usesKeystrokeFallback else { return false }
 ```
 
-- [ ] **Step 3: Передать реальный набор исключений вместо литерала из Task 1**
+- [ ] **Step 4: Передать реальный набор исключений вместо литерала из Task 1**
 
 В `Sources/LatCyr/InputMonitor.swift:121` (текст после Task 1), замени:
 
@@ -668,27 +648,27 @@ final class InputMonitor {
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words) {
 ```
 
-- [ ] **Step 4: Собрать проект и прогнать тесты**
+- [ ] **Step 5: Собрать проект и прогнать тесты**
 
 Run: `swift build && swift test`
-Expected: `Build complete!`, все тесты зелёные (Task 1's тесты не зависят от `InputMonitor`, но сборка пакета целиком должна проходить).
+Expected: `Build complete!`, все тесты зелёные.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/LatCyr/InputMonitor.swift
-git commit -m "feat: wire ExceptionStore and HybridAppStore into InputMonitor"
+git add Sources/LatCyr/KeystrokeSimulator.swift Sources/LatCyr/InputMonitor.swift
+git commit -m "feat: rename KeystrokeSimulator to usesKeystrokeFallback and wire ExceptionStore/HybridAppStore into InputMonitor"
 ```
 
 ---
 
-## Task 7: `TextFieldController.selectedText()`
+## Task 6: `TextFieldController.selectedText()`
 
 **Files:**
 - Modify: `Sources/LatCyr/TextFieldController.swift`
 
 **Interfaces:**
-- Produces: `TextFieldController.selectedText() -> String?` — используется Task 8 (`AppDelegate`).
+- Produces: `TextFieldController.selectedText() -> String?` — используется Task 7 (`AppDelegate`).
 
 - [ ] **Step 1: Добавить метод**
 
@@ -723,13 +703,13 @@ git commit -m "feat: add TextFieldController.selectedText for the exception-word
 
 ---
 
-## Task 8: Пункты меню в `AppDelegate`
+## Task 7: Пункты меню в `AppDelegate`
 
 **Files:**
 - Modify: `Sources/LatCyr/AppDelegate.swift`
 
 **Interfaces:**
-- Consumes: `inputMonitor.exceptionStore` / `.hybridAppStore` (Task 6), `TextFieldController.selectedText()` (Task 7), `KeystrokeSimulator.terminalBundleIDs` (Task 5).
+- Consumes: `inputMonitor.exceptionStore` / `.hybridAppStore` (Task 5), `TextFieldController.selectedText()` (Task 6), `KeystrokeSimulator.terminalBundleIDs` (Task 5).
 
 - [ ] **Step 1: Добавить `textFieldController` и два пункта меню в `buildMenu()`**
 
@@ -839,7 +819,7 @@ git commit -m "feat: add TextFieldController.selectedText for the exception-word
 Run: `swift build`
 Expected: `Build complete!`
 
-- [ ] **Step 4: Ручная проверка (см. полный чек-лист в Task 10) — быстрый smoke-test**
+- [ ] **Step 4: Ручная проверка (см. полный чек-лист в Task 9) — быстрый smoke-test**
 
 ```bash
 ./scripts/package-app.sh && open dist/LatCyr.app
@@ -856,7 +836,7 @@ git commit -m "feat: add menu actions to register exception words and hybrid app
 
 ---
 
-## Task 9: Обновить `CLAUDE.md`
+## Task 8: Обновить `CLAUDE.md`
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -914,7 +894,7 @@ git commit -m "docs: document ExceptionStore, HybridAppStore, and the usesKeystr
 
 ---
 
-## Task 10: Ручная сквозная проверка
+## Task 9: Ручная сквозная проверка
 
 **Files:** нет (QA, изменений в код нет).
 
