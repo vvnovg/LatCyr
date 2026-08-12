@@ -19,6 +19,17 @@ final class LayoutManager {
     /// Whether the current layout is Russian.
     var isRussian: Bool { currentLayout == .russian }
 
+    /// Which Russian keyboard variant is active, for TextConverter's
+    /// variant-aware conversion. Only "Russian" (Apple's own layout) is
+    /// distinguished exactly; every other Russian-family layout ("Russian -
+    /// PC", "Russian - QWERTY"/Phonetic, and anything else) falls back to
+    /// .pc, matching the mapping this app has always used.
+    var currentRussianVariant: TextConverter.RussianKeyboardVariant {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let id = inputSourceID(source) else { return .pc }
+        return id == "com.apple.keylayout.Russian" ? .apple : .pc
+    }
+
     /// Switch the keyboard layout to Russian.
     func switchToRussian() { switchTo(layout: .russian) }
 
@@ -61,7 +72,10 @@ final class LayoutManager {
     private func layout(of source: TISInputSource) -> Layout {
         guard let id = inputSourceID(source) else { return .other }
         let lower = id.lowercased()
-        if lower.contains("russian") { return .russian }
+        // hasPrefix, not contains: "com.apple.keylayout.Byelorussian" also
+        // contains the substring "russian" and was previously misdetected
+        // as a Russian layout.
+        if lower.hasPrefix("com.apple.keylayout.russian") { return .russian }
         if lower.contains("us") || lower.contains("abc") || lower.contains("british")
             || lower.contains("english") || lower.contains("australian")
             || lower.contains("canadian") || lower.contains("irish")
