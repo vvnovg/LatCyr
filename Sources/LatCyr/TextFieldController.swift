@@ -35,6 +35,19 @@ final class TextFieldController {
         text(of: element) != nil && selectedRange(of: element) != nil
     }
 
+    /// The currently selected text in the focused element, if any. Returns
+    /// nil for secure fields (anti password-leak) and whenever there's
+    /// nothing to read (no focused element, no selection, or an app whose
+    /// visible content isn't a real AX value — e.g. a terminal).
+    func selectedText() -> String? {
+        guard let element = focusedTextElement(), !isSecure(element) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
+              let raw = value else { return nil }
+        let text = unsafeBitCast(raw, to: CFString.self) as String
+        return text.isEmpty ? nil : text
+    }
+
     /// Where a word sits in a text field, captured at a moment in time.
     /// `range` is fixed (UTF-16 offsets); the cursor may since have moved
     /// past it as the user kept typing — `replaceAnchoredWord` re-reads the
