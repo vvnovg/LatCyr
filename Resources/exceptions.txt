@@ -1,0 +1,55 @@
+# Английские IT-термины и протоколы — бандловый список исключений LatCyr.
+# Никогда не конвертируются, если набраны верно; всегда исправляются, если
+# набраны в чужой раскладке. Дополнить можно через меню LatCyr или вручную
+# отредактировав ~/Library/Application Support/LatCyr/exceptions.txt.
+http
+https
+www
+ssl
+tls
+ssh
+ftp
+sftp
+dns
+vpn
+tcp
+udp
+ip
+url
+uri
+api
+sdk
+sdd
+ide
+cli
+gui
+ui
+ux
+cpu
+gpu
+ram
+rom
+usb
+hdd
+ssd
+json
+xml
+html
+css
+sql
+nosql
+git
+svn
+npm
+pip
+docker
+kubernetes
+oauth
+jwt
+rest
+soap
+grpc
+cdn
+dom
+ajax
+spa

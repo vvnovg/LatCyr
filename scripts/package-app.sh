@@ -19,8 +19,10 @@ swift build -c release
 
 rm -rf "$DIST"
 mkdir -p "$DIST/Contents/MacOS"
+mkdir -p "$DIST/Contents/Resources"
 
 cp ".build/release/${APP_NAME}" "$DIST/Contents/MacOS/${APP_NAME}"
+cp "Resources/exceptions.txt" "$DIST/Contents/Resources/exceptions.txt"
 
 cat > "$DIST/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
