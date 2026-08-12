@@ -187,7 +187,7 @@ final class InputMonitor {
         // Scope: terminal-only. Outside a terminal there's no strong reason
         // to treat a bare "/" as "the user is about to type a path" — this
         // reuses the same allowlist as the AX-replacement fallback.
-        guard keystrokeSimulator.usesKeystrokeFallback else { return }
+        guard keystrokeSimulator.isTerminalFrontmost else { return }
         guard LanguageDetector.proactiveSingleCharSwitchSignal(
             first: char, currentLayoutIsRussian: wasRussian
         ) else { return }

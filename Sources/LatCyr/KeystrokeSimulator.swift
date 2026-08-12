@@ -44,6 +44,16 @@ final class KeystrokeSimulator {
         return Self.terminalBundleIDs.contains(id) || hybridAppStore.contains(id)
     }
 
+    /// Narrower than usesKeystrokeFallback: terminal only, not hybrid apps.
+    /// The leading-"/" signal (InputMonitor.performLeadingCharCheck) is
+    /// scoped to this — its rationale is specifically about shell
+    /// path-typing, which doesn't generalize to arbitrary registered
+    /// hybrid apps the way the AX-replacement fallback does.
+    var isTerminalFrontmost: Bool {
+        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+        return Self.terminalBundleIDs.contains(id)
+    }
+
     /// Delete `count` characters immediately before the cursor, then type
     /// `replacement`, via tagged synthetic keyboard events. Returns `false`
     /// if `count` is out of range or any event fails to *construct*, so the

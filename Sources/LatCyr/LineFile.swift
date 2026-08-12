@@ -7,8 +7,8 @@ enum LineFile {
     static func read(_ url: URL) -> Set<String> {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         var result: Set<String> = []
-        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in content.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
             result.insert(line.lowercased())
         }
@@ -22,12 +22,12 @@ enum LineFile {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         let line = value + "\n"
-        if let handle = try? FileHandle(forWritingTo: url) {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        } else if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
             handle.write(Data(line.utf8))
             try? handle.close()
-        } else {
-            try? line.write(to: url, atomically: true, encoding: .utf8)
         }
     }
 }

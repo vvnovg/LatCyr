@@ -14,7 +14,6 @@ dns
 vpn
 tcp
 udp
-ip
 url
 uri
 api
@@ -23,8 +22,6 @@ sdd
 ide
 cli
 gui
-ui
-ux
 cpu
 gpu
 ram
