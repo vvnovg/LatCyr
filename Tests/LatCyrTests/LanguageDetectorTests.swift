@@ -4,9 +4,9 @@ import XCTest
 final class LanguageDetectorTests: XCTestCase {
     // Russian typed in English layout → detect
     func testRussianTypedInEnglishLayout() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn", currentLayoutIsRussian: false, exceptions: [])) // привет
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "vbh", currentLayoutIsRussian: false, exceptions: []))     // мир
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ntcn", currentLayoutIsRussian: false, exceptions: []))    // тест
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // привет
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "vbh", currentLayoutIsRussian: false, exceptions: [], variant: .pc))     // мир
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ntcn", currentLayoutIsRussian: false, exceptions: [], variant: .pc))    // тест
     }
 
     // Words containing letters typed via a punctuation key (ё, х, ъ, ж, э,
@@ -14,37 +14,37 @@ final class LanguageDetectorTests: XCTestCase {
     // detected as a whole, not cut short at the punctuation character.
     func testWordWithAmbiguousPunctuationLetter() {
         XCTAssertEqual(TextConverter.toCyrillic("ndj.", variant: .pc), "твою")
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ndj.", currentLayoutIsRussian: false, exceptions: [])) // твою
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ndj.", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // твою
     }
 
     // English typed in Russian layout → detect
     func testEnglishTypedInRussianLayout() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "руддщ", currentLayoutIsRussian: true, exceptions: []))   // hello
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "цщкду", currentLayoutIsRussian: true, exceptions: []))   // world
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "руддщ", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // hello
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "цщкду", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // world
     }
 
     // Correct words → never touch
     func testCorrectWordsNotTouched() {
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "hello", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "the", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "world", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "привет", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "мир", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "тест", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "следующий", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "здравствуйте", currentLayoutIsRussian: true, exceptions: []))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "hello", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "the", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "world", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "привет", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "мир", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "тест", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "следующий", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "здравствуйте", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
     }
 
     // Short words → never touch
     func testShortWordsNotTouched() {
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "vb", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "gh", currentLayoutIsRussian: false, exceptions: []))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "vb", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "gh", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
     // Words with digits → never touch
     func testWordsWithDigitsNotTouched() {
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ghbdtn123", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "привет1", currentLayoutIsRussian: true, exceptions: []))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ghbdtn123", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "привет1", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
     }
 
     // Exception words — a Latin exception overrides the score heuristic in
@@ -52,8 +52,8 @@ final class LanguageDetectorTests: XCTestCase {
     // real false positive of the plain heuristic (short, consonant-heavy
     // acronyms score ambiguously) — exactly what the whitelist half fixes.
     func testExceptionWordNeverConverted() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: ["sdd"]))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: ["sdd"], variant: .pc))
     }
 
     // "ssl" mistyped as "ыыд" under the Russian layout (toLatin("ыыд") ==
@@ -61,19 +61,33 @@ final class LanguageDetectorTests: XCTestCase {
     // it — exactly what the forced-correction half fixes.
     func testExceptionWordAlwaysCorrected() {
         XCTAssertEqual(TextConverter.toLatin("ыыд", variant: .pc), "ssl")
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: ["ssl"]))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: ["ssl"], variant: .pc))
     }
 
     // Same two behaviors, mirrored for a Cyrillic exception word — proves
     // the check isn't hardcoded to Latin-only exceptions.
     func testCyrillicExceptionWordSymmetric() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: []))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: ["ффф"]))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: ["ффф"], variant: .pc))
 
         XCTAssertEqual(TextConverter.toCyrillic("dep", variant: .pc), "вуз")
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: []))
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: ["вуз"]))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: ["вуз"], variant: .pc))
+    }
+
+    // The Russian keyboard variant gates which punctuation keys count as
+    // letters (LanguageDetector's own guard, not just TextConverter) —
+    // "`" is a letter-producing key only under .pc, "\" only under .apple.
+    // Hand-verified: englishScore("h`c") ≈ 0.21 (< 0.35), russianScore of
+    // its .pc conversion "рёс" ≈ 0.498 (> 0.4), diff ≈ 0.29 (> 0.1) — a
+    // genuine wrong-layout hit once the guard admits the backtick.
+    func testRussianVariantGatesAmbiguousLetterGuard() {
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "h`c", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "h`c", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
+
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "h\\c", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "h\\c", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
     // Proactive: English layout → Russian

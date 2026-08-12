@@ -117,15 +117,16 @@ public enum LanguageDetector {
     /// never flagged; a word whose conversion is an exception is always
     /// flagged — regardless of `russianThreshold`/`englishThreshold`/`diffThreshold`.
     public static func isWrongLayout(
-        word: String, currentLayoutIsRussian: Bool, exceptions: Set<String>
+        word: String, currentLayoutIsRussian: Bool, exceptions: Set<String>,
+        variant: TextConverter.RussianKeyboardVariant
     ) -> Bool {
         let lower = word.lowercased()
         guard lower.count >= minWordLength else { return false }
-        guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: .pc).contains($0) }) else { return false }
+        guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) }) else { return false }
 
         if exceptions.contains(lower) { return false }
 
-        let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower, variant: .pc) : TextConverter.toCyrillic(lower, variant: .pc)
+        let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower, variant: variant) : TextConverter.toCyrillic(lower, variant: variant)
         if exceptions.contains(converted) { return true }
 
         if currentLayoutIsRussian {
