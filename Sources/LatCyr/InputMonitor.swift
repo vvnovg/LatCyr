@@ -118,7 +118,7 @@ final class InputMonitor {
         } else if isWordBoundary(char) {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
-            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian) {
+            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: []) {
                 scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, boundary: char)
             }
             currentWord = ""

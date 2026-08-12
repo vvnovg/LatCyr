@@ -112,20 +112,28 @@ public enum LanguageDetector {
     // MARK: - Decisions
 
     /// Decide whether `word` (typed in the current layout) was meant to be
-    /// typed in the other layout.
-    public static func isWrongLayout(word: String, currentLayoutIsRussian: Bool) -> Bool {
+    /// typed in the other layout. `exceptions` overrides the score
+    /// heuristic unconditionally: a word that is itself an exception is
+    /// never flagged; a word whose conversion is an exception is always
+    /// flagged — regardless of `russianThreshold`/`englishThreshold`/`diffThreshold`.
+    public static func isWrongLayout(
+        word: String, currentLayoutIsRussian: Bool, exceptions: Set<String>
+    ) -> Bool {
         let lower = word.lowercased()
         guard lower.count >= minWordLength else { return false }
         guard lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols.contains($0) }) else { return false }
 
+        if exceptions.contains(lower) { return false }
+
+        let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower) : TextConverter.toCyrillic(lower)
+        if exceptions.contains(converted) { return true }
+
         if currentLayoutIsRussian {
-            let converted = TextConverter.toLatin(lower)
             let russian = russianScore(lower)
             let english = englishScore(converted)
             return english > englishThreshold && russian < russianThreshold
                 && english - russian > diffThreshold
         } else {
-            let converted = TextConverter.toCyrillic(lower)
             let english = englishScore(lower)
             let russian = russianScore(converted)
             return russian > russianThreshold && english < englishThreshold
