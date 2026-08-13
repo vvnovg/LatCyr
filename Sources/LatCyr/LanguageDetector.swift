@@ -111,6 +111,48 @@ public enum LanguageDetector {
 
     // MARK: - Decisions
 
+    /// Top-level domains recognised in a conversion. Deliberately a curated
+    /// list rather than "any 2+ letters after a dot": "верблюды" converts to
+    /// "dth,k.ls" and "воюем" to "dj.tv", so a generic rule would read real
+    /// Russian words as domains. TLDs that collide with common Russian
+    /// endings are left out for the same reason — "tv" is "-юем" (воюем,
+    /// горюем) and "cz" is "-юся".
+    private static let knownTLDs: Set<String> = [
+        "com", "org", "net", "info", "io", "me", "co", "app", "dev", "ai", "xyz",
+        "ru", "de", "uk", "fr", "it", "es", "pl", "nl", "se", "fi", "ua", "by", "kz",
+    ]
+
+    /// Shortest first label accepted as a domain. "клюву" converts to "rk.de",
+    /// a valid-looking domain with a 2-character name; real sites the user
+    /// types by hand are longer. Costs nothing in practice — "t.me" is caught
+    /// by the score heuristic anyway (englishScore 0.69).
+    private static let minDomainLabelLength = 3
+
+    /// Whether the conversion reads as a domain name. Domain names are always
+    /// Latin, so this is an unconditional wrong-layout signal — the same
+    /// standing as the exception list, and for the same reason: the frequency
+    /// heuristic cannot see it. "нщгегиуюсщь" converts to "youtube.com", yet
+    /// its filtered form scores 0.468 as Russian (over russianThreshold)
+    /// because н, е, и, у and с are all high-frequency Russian letters.
+    ///
+    /// The ASCII check does the heavy lifting against false positives: any
+    /// Cyrillic in the conversion (i.e. the English→Russian direction, where
+    /// a domain reading is meaningless) or any stray punctuation — "боюся"
+    /// converts to ",j.cz" — disqualifies the word outright.
+    private static func looksLikeDomain(_ converted: String) -> Bool {
+        guard converted.contains(".") else { return false }
+        guard converted.allSatisfy({
+            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-")
+        }) else { return false }
+
+        let labels = converted.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2,
+              labels.allSatisfy({ !$0.isEmpty }),
+              let tld = labels.last, knownTLDs.contains(String(tld)),
+              let first = labels.first, first.count >= minDomainLabelLength else { return false }
+        return true
+    }
+
     /// Drop the positions where the *conversion* yields punctuation: those
     /// characters are separators that ended up inside the word (a domain's
     /// dot, typed as "ю" under the Russian layout), not letters of it. Left
@@ -160,6 +202,7 @@ public enum LanguageDetector {
 
         let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower, variant: variant) : TextConverter.toCyrillic(lower, variant: variant)
         if exceptions.contains(converted) { return true }
+        if looksLikeDomain(converted) { return true }
 
         let scored = strippingPunctuation(lower, converted)
 

@@ -167,6 +167,33 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
+    // Some domains score as plausible Russian even after punctuation
+    // filtering: "нщгегиуюсщь" is "youtube.com", but its filtered form is
+    // made of high-frequency Russian letters (н, е, и, у, с) and scores
+    // 0.468 — above russianThreshold. A conversion that reads as a domain
+    // name is an unconditional signal instead: domains are always Latin.
+    func testDomainNameOverridesScoreHeuristic() {
+        XCTAssertEqual(TextConverter.toLatin("нщгегиуюсщь", variant: .pc), "youtube.com")
+        XCTAssertGreaterThan(LanguageDetector.russianScore("нщгегиусщь"), LanguageDetector.russianThreshold)
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // Real Russian words whose conversion superficially resembles a domain.
+    // "воюем" -> "dj.tv" and "клюву" -> "rk.de" are why the rule needs both
+    // a curated TLD list and a minimum first-label length — a generic
+    // "any 2+ letters after a dot" rule would corrupt all of these.
+    func testRussianWordsResemblingDomainsNotTouched() {
+        XCTAssertEqual(TextConverter.toLatin("воюем", variant: .pc), "dj.tv")
+        XCTAssertEqual(TextConverter.toLatin("горюем", variant: .pc), "ujh.tv")
+        XCTAssertEqual(TextConverter.toLatin("клюву", variant: .pc), "rk.de")
+        XCTAssertEqual(TextConverter.toLatin("моюся", variant: .pc), "vj.cz")
+
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "воюем", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "горюем", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "клюву", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "моюся", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
     // Scores
     func testScores() {
         XCTAssertGreaterThan(LanguageDetector.russianScore("привет"), 0.4)
