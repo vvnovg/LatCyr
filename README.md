@@ -3,6 +3,41 @@
 macOS menu bar app that auto-detects text typed in the wrong keyboard layout
 (Russian ↔ English), switches the layout, and fixes the typed text.
 
+## Установка (Русский)
+
+### Скачать
+
+**[LatCyr.zip — последняя тестовая сборка](https://github.com/vvnovg/LatCyr/releases/latest)**
+
+Не релиз, версии нет — сборки помечаются коммитом, с которого собраны.
+
+### Установить
+
+1. Распакуй `LatCyr.zip`, перемести `LatCyr.app` в `/Applications`.
+2. Открой через **правый клик → Открыть** (может потребоваться из-за
+   ad-hoc подписи / Gatekeeper — обычный двойной клик покажет
+   предупреждение «неизвестный разработчик»). Если Mac пишет «файл
+   повреждён», сними карантинный атрибут:
+   ```bash
+   xattr -cr /Applications/LatCyr.app
+   ```
+3. Выдай разрешения **Accessibility** и **Input Monitoring** в
+   System Settings → Privacy & Security, указав путь именно к
+   `/Applications/LatCyr.app`.
+4. Перезапусти приложение.
+
+### Автозапуск при входе в систему
+
+1. System Settings → General → **Login Items & Extensions**.
+2. Под «Open at Login» нажми «+» и выбери `/Applications/LatCyr.app`.
+
+Приложение работает только через menu bar (без иконки в Dock), поэтому
+скрывать его при автозапуске отдельно не нужно.
+
+> При обновлении сборки (`package-app.sh` пересобирает и переподписывает
+> бандл заново) скопируй новую версию поверх `/Applications/LatCyr.app` и
+> выдай разрешения заново — переподпись сбрасывает уже выданные.
+
 ## Download
 
 **[LatCyr.zip — latest test build](https://github.com/vvnovg/LatCyr/releases/latest)**
