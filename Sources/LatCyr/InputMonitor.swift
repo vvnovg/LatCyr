@@ -45,12 +45,20 @@ final class InputMonitor {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            // .defaultTap, not .listenOnly: a listen-only tap is handed a copy
+            // of the event while the system delivers the original to the app
+            // in parallel — it never waits for the callback to return. That
+            // makes Enter unfixable, and measurably so: with the AX write done
+            // synchronously in the callback, Safari's address bar visibly
+            // changed to the corrected text while the navigation had already
+            // gone to the old one. An active tap lets us swallow the key,
+            // correct the word, and re-post the key ourselves.
+            options: .defaultTap,
             eventsOfInterest: mask,
             callback: { proxy, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let monitor = Unmanaged<InputMonitor>.fromOpaque(refcon).takeUnretainedValue()
-                monitor.handle(event: event, type: type)
+                if monitor.handle(event: event, type: type) { return nil }
                 return Unmanaged.passUnretained(event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -96,27 +104,39 @@ final class InputMonitor {
 
     // MARK: - Event handling
 
-    private func handle(event: CGEvent, type: CGEventType) {
-        guard type == .keyDown else { return }
+    /// Returns `true` when the event must be swallowed instead of delivered.
+    /// Only ever true for Enter/Tab that ended a wrong-layout word: the key is
+    /// re-posted by `applyCorrectionNow` once the text has been fixed.
+    private func handle(event: CGEvent, type: CGEventType) -> Bool {
+        // The system disables a tap whose callback takes too long, and after
+        // certain user input. Both types arrive here regardless of
+        // eventsOfInterest, and without re-enabling the tap the app goes
+        // silently dead until relaunch — the menu bar item still reads
+        // "включено" while nothing is being monitored.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return false
+        }
+        guard type == .keyDown else { return false }
         // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
         // otherwise they'd corrupt the word buffer or re-trigger correction.
-        guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return }
+        guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         // Skip shortcuts (Cmd/Ctrl held).
-        if flags.contains(.maskCommand) || flags.contains(.maskControl) { return }
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) { return false }
         // Skip modifier keys themselves.
-        if modifierKeyCodes.contains(keyCode) { return }
+        if modifierKeyCodes.contains(keyCode) { return false }
 
         // Backspace (kVK_Delete = 51): shrink the word buffer.
         if keyCode == 51 {
             if !currentWord.isEmpty { currentWord.removeLast() }
-            return
+            return false
         }
 
         guard let char = layoutManager.character(forKeyCode: keyCode, flags: flags) else {
             currentWord = ""
-            return
+            return false
         }
 
         // Read live, not from the stored field: on the very first character
@@ -137,12 +157,21 @@ final class InputMonitor {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: currentRussianVariant) {
+                if char.isNewline || char == "\t" {
+                    let word = currentWord
+                    currentWord = ""
+                    return applyCorrectionNow(
+                        word: word, wasRussian: currentLayoutIsRussian,
+                        variant: currentRussianVariant, keyCode: keyCode
+                    )
+                }
                 scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
             }
             currentWord = ""
         } else {
             currentWord = ""
         }
+        return false
     }
 
     // MARK: - Correction
@@ -175,6 +204,39 @@ final class InputMonitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: anchor)
         }
+    }
+
+    /// Correct right now, inside the event callback, and report whether the
+    /// key that triggered it should be swallowed.
+    ///
+    /// Enter and Tab can't use `correctionDelay`: they print nothing to wait
+    /// for, and they make the app act immediately (navigate, submit, move
+    /// focus). Correcting afterwards is too late — the browser has already
+    /// sent the request. Correcting synchronously isn't enough either, since
+    /// the key is delivered independently of this callback. So the key is
+    /// swallowed (`true` here makes the tap return nil), the word is fixed,
+    /// and the key is then re-posted by KeystrokeSimulator, arriving at the
+    /// app after the corrected text.
+    ///
+    /// `boundary: nil` is deliberate: the swallowed key never reaches the
+    /// screen, so the keystroke fallback must delete the word alone and retype
+    /// the correction alone — the `word.count + 1` arithmetic used for visible
+    /// separators would eat one character too many here. That is also what
+    /// makes the fallback usable for Enter at all, terminals included.
+    ///
+    /// If the key can't be re-posted, the correction is reported as failed:
+    /// swallowing a key we cannot give back would silently lose the user's
+    /// Enter, which is worse than leaving the word uncorrected.
+    private func applyCorrectionNow(
+        word: String, wasRussian: Bool,
+        variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
+    ) -> Bool {
+        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        guard applyCorrection(
+            word: word, wasRussian: wasRussian, variant: variant,
+            replacePrefix: false, boundary: nil, anchor: anchor
+        ) else { return false }
+        return keystrokeSimulator.replay(keyCode: keyCode)
     }
 
     private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) {
