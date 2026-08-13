@@ -111,6 +111,38 @@ public enum LanguageDetector {
 
     // MARK: - Decisions
 
+    /// Drop the positions where the *conversion* yields punctuation: those
+    /// characters are separators that ended up inside the word (a domain's
+    /// dot, typed as "ю" under the Russian layout), not letters of it. Left
+    /// in, they skew both the vowel ratio and the frequency sum — enough to
+    /// hold a genuine wrong-layout word above russianThreshold. Only scoring
+    /// sees the filtered form; the word itself is still replaced whole,
+    /// punctuation included.
+    ///
+    /// Filtering is deliberately one-sided, driven by `converted` and never
+    /// by `original`. A character that is punctuation in the original but a
+    /// letter in the conversion is a letter the user meant to type: with the
+    /// English layout active, "," is the "б" key, while a Russian comma is
+    /// typed as Shift+"/" and arrives as "?" — a plain word boundary that
+    /// ends the buffer long before this runs.
+    private static func strippingPunctuation(
+        _ original: String, _ converted: String
+    ) -> (original: String, converted: String) {
+        let originalChars = Array(original)
+        let convertedChars = Array(converted)
+        // TextConverter maps character-for-character, so the indices line up.
+        // If that ever stops being true, skip filtering rather than misalign.
+        guard originalChars.count == convertedChars.count else { return (original, converted) }
+
+        var keptOriginal = ""
+        var keptConverted = ""
+        for (o, c) in zip(originalChars, convertedChars) where !(c.isPunctuation || c.isSymbol) {
+            keptOriginal.append(o)
+            keptConverted.append(c)
+        }
+        return (keptOriginal, keptConverted)
+    }
+
     /// Decide whether `word` (typed in the current layout) was meant to be
     /// typed in the other layout. `exceptions` overrides the score
     /// heuristic unconditionally: a word that is itself an exception is
@@ -129,14 +161,16 @@ public enum LanguageDetector {
         let converted = currentLayoutIsRussian ? TextConverter.toLatin(lower, variant: variant) : TextConverter.toCyrillic(lower, variant: variant)
         if exceptions.contains(converted) { return true }
 
+        let scored = strippingPunctuation(lower, converted)
+
         if currentLayoutIsRussian {
-            let russian = russianScore(lower)
-            let english = englishScore(converted)
+            let russian = russianScore(scored.original)
+            let english = englishScore(scored.converted)
             return english > englishThreshold && russian < russianThreshold
                 && english - russian > diffThreshold
         } else {
-            let english = englishScore(lower)
-            let russian = russianScore(converted)
+            let english = englishScore(scored.original)
+            let russian = russianScore(scored.converted)
             return russian > russianThreshold && english < englishThreshold
                 && russian - english > diffThreshold
         }

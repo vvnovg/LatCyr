@@ -112,6 +112,61 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.proactiveSingleCharSwitchSignal(first: "a", currentLayoutIsRussian: true))
     }
 
+    // A word whose conversion contains punctuation — a domain name — must be
+    // scored on its letters alone. "фьфящтюву" is "amazon.de" typed under the
+    // Russian layout: the "ю" comes from the "." key but is a Russian vowel
+    // with its own frequency weight, and counting it puts russianScore at
+    // 0.424 — just over the 0.4 threshold, so the whole correction was
+    // dropped. Scored without it the word sits at 0.323 and is corrected in
+    // full, dot included.
+    func testDomainWithPunctuationDetected() {
+        XCTAssertEqual(TextConverter.toLatin("фьфящтюву", variant: .pc), "amazon.de")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "фьфящтюву", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // Domains that already scored correctly must keep doing so: filtering
+    // shortens the scored word, and a shorter word must not drift back over
+    // a threshold.
+    func testDomainsThatAlreadyWorkedStillDetected() {
+        XCTAssertEqual(TextConverter.toLatin("пщщпдуюсщь", variant: .pc), "google.com")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "пщщпдуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+
+        XCTAssertEqual(TextConverter.toLatin("еюьу", variant: .pc), "t.me")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "еюьу", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // The mirror case: a Cyrillic letter that merely *converts* to punctuation
+    // is still a real letter of a correctly typed Russian word. Filtering must
+    // not turn any of these into a false positive.
+    func testCorrectRussianWordsWhoseConversionHasPunctuationNotTouched() {
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "пою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // gj.
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "мою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // vj.
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "съел", currentLayoutIsRussian: true, exceptions: [], variant: .pc))  // c]tk
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "т.е.", currentLayoutIsRussian: true, exceptions: [], variant: .pc))  // n/t/
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "т.к.", currentLayoutIsRussian: true, exceptions: [], variant: .pc))  // n/r/
+    }
+
+    // "ё" sits on a different physical key in each Russian variant ("`" under
+    // .pc, "\" under .apple), but both convert to punctuation, so both must be
+    // filtered out of scoring — and "объём" stays untouched either way.
+    func testPunctuationFilteringHoldsForBothVariants() {
+        XCTAssertEqual(TextConverter.toLatin("объём", variant: .pc), "j,]`v")
+        XCTAssertEqual(TextConverter.toLatin("объём", variant: .apple), "j,]\\v")
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "объём", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "объём", currentLayoutIsRussian: true, exceptions: [], variant: .apple))
+    }
+
+    // Filtering is driven by the conversion, never by the original: under the
+    // English layout "," and "]" are the "б" and "ъ" keys, so these words must
+    // behave exactly as they did before.
+    func testPunctuationInOriginalOnlyStillDetected() {
+        XCTAssertEqual(TextConverter.toCyrillic("j,]trn", variant: .pc), "объект")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "j,]trn", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+
+        XCTAssertEqual(TextConverter.toCyrillic("ghbdtn,", variant: .pc), "приветб")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+    }
+
     // Scores
     func testScores() {
         XCTAssertGreaterThan(LanguageDetector.russianScore("привет"), 0.4)
