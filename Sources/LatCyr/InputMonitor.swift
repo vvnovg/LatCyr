@@ -146,7 +146,11 @@ final class InputMonitor {
             if currentWord.isEmpty {
                 scheduleLeadingCharCheck(char)
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: currentRussianVariant) {
-                scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+                if char.isNewline || char == "\t" {
+                    applyCorrectionNow(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+                } else {
+                    scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+                }
             }
             currentWord = ""
         } else {
@@ -184,6 +188,28 @@ final class InputMonitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: anchor)
         }
+    }
+
+    /// Correct right now, inside the event callback, skipping correctionDelay.
+    /// That delay exists so the app can print the boundary character before we
+    /// rewrite the text — but Enter and Tab print nothing, and they trigger an
+    /// app action immediately (navigation, form submit, focus change). By the
+    /// time a delayed correction fired, the browser has already sent the wrong
+    /// request. The tap is installed at .headInsertEventTap, so the work done
+    /// here lands before the app ever sees the key.
+    ///
+    /// AX-only in practice: applyCorrection's keystroke fallback already
+    /// refuses Enter and Tab, so nothing is injected into a terminal — that
+    /// case stays uncorrected, by design.
+    private func applyCorrectionNow(
+        word: String, wasRussian: Bool,
+        variant: TextConverter.RussianKeyboardVariant, boundary: Character
+    ) {
+        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        applyCorrection(
+            word: word, wasRussian: wasRussian, variant: variant,
+            replacePrefix: false, boundary: boundary, anchor: anchor
+        )
     }
 
     private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) {
