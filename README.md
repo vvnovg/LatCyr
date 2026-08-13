@@ -97,6 +97,28 @@ Privacy & Security (Accessibility and Input Monitoring), and relaunch.
 > Re-running `package-app.sh` re-signs the bundle, which changes its code hash
 > and drops already-granted permissions — re-grant after re-packaging.
 
+## Launch at login
+
+LatCyr has no built-in "launch at login" toggle — use macOS's own Login
+Items instead. Move the app to a stable location first (`/Applications` is
+recommended over `dist/`, which is a gitignored build folder that gets
+regenerated):
+
+```bash
+mv dist/LatCyr.app /Applications/LatCyr.app
+```
+
+Then: System Settings → General → **Login Items & Extensions** → click
+"+" under "Open at Login" → select `/Applications/LatCyr.app`.
+
+Since LatCyr is a menu-bar-only app (no Dock icon, no window), there's
+nothing extra to hide on launch.
+
+> If you rebuild with `package-app.sh` afterwards, copy the new
+> `dist/LatCyr.app` over `/Applications/LatCyr.app` and re-grant
+> permissions (re-signing resets them) — Login Items itself doesn't need
+> to be re-added, it still points at the same path.
+
 ## How it works
 
 - A CGEventTap intercepts keyDown events and tracks the current word.
