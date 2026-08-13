@@ -97,6 +97,15 @@ final class InputMonitor {
     // MARK: - Event handling
 
     private func handle(event: CGEvent, type: CGEventType) {
+        // The system disables a tap whose callback takes too long, and after
+        // certain user input. Both types arrive here regardless of
+        // eventsOfInterest, and without re-enabling the tap the app goes
+        // silently dead until relaunch — the menu bar item still reads
+        // "включено" while nothing is being monitored.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return
+        }
         guard type == .keyDown else { return }
         // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
         // otherwise they'd corrupt the word buffer or re-trigger correction.
