@@ -19,15 +19,33 @@ final class LayoutManager {
     /// Whether the current layout is Russian.
     var isRussian: Bool { currentLayout == .russian }
 
-    /// Which Russian keyboard variant is active, for TextConverter's
-    /// variant-aware conversion. Only "Russian" (Apple's own layout) is
-    /// distinguished exactly; every other Russian-family layout ("Russian -
-    /// PC", "Russian - QWERTY"/Phonetic, and anything else) falls back to
-    /// .pc, matching the mapping this app has always used.
+    /// Which Russian keyboard variant is relevant right now, for
+    /// TextConverter's variant-aware conversion. Only "Russian" (Apple's own
+    /// layout) is distinguished exactly; every other Russian-family layout
+    /// ("Russian - PC", "Russian - QWERTY"/Phonetic, and anything else)
+    /// falls back to .pc, matching the mapping this app has always used.
+    ///
+    /// The active source isn't always the Russian one: in the English→
+    /// Russian correction direction, English is active for the whole word
+    /// (buffer accumulation, isWrongLayout) and the layout only switches
+    /// after the replacement. In that case the variant that matters is
+    /// whichever Russian layout is enabled — that's the target of the
+    /// correction — not the active English source.
     var currentRussianVariant: TextConverter.RussianKeyboardVariant {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-              let id = inputSourceID(source) else { return .pc }
-        return id == "com.apple.keylayout.Russian" ? .apple : .pc
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           layout(of: source) == .russian {
+            return inputSourceID(source) == "com.apple.keylayout.Russian" ? .apple : .pc
+        }
+        guard let cfArray = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else { return .pc }
+        let count = CFArrayGetCount(cfArray)
+        for i in 0..<count {
+            guard let ptr = CFArrayGetValueAtIndex(cfArray, i) else { continue }
+            let candidate = unsafeBitCast(ptr, to: TISInputSource.self)
+            if layout(of: candidate) == .russian {
+                return inputSourceID(candidate) == "com.apple.keylayout.Russian" ? .apple : .pc
+            }
+        }
+        return .pc
     }
 
     /// Switch the keyboard layout to Russian.
@@ -76,10 +94,15 @@ final class LayoutManager {
         // contains the substring "russian" and was previously misdetected
         // as a Russian layout.
         if lower.hasPrefix("com.apple.keylayout.russian") { return .russian }
-        if lower.contains("us") || lower.contains("abc") || lower.contains("british")
-            || lower.contains("english") || lower.contains("australian")
-            || lower.contains("canadian") || lower.contains("irish")
-            || lower.contains("dvorak") || lower.contains("qwerty") {
+        // English tokens are matched against the id's suffix (after the
+        // "com.apple.keylayout." prefix) via hasPrefix, not contains
+        // anywhere in the full id: "byelorussian" contains "us" as a
+        // substring ("r-us-sian") and was misdetected as English when this
+        // used to be a plain `contains` scan of the whole lowercased id.
+        let prefix = "com.apple.keylayout."
+        let suffix = lower.hasPrefix(prefix) ? String(lower.dropFirst(prefix.count)) : lower
+        let englishTokens = ["us", "abc", "british", "english", "australian", "canadian", "irish", "dvorak", "qwerty"]
+        if englishTokens.contains(where: { suffix.hasPrefix($0) }) {
             return .english
         }
         return .other
