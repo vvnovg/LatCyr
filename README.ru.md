@@ -4,6 +4,31 @@
 в неправильной раскладке (Русский ↔ English), переключает раскладку и
 исправляет набранное.
 
+**Бинарную версию можно скачать здесь: https://github.com/vvnovg/LatCyr/releases/latest**
+
+🇬🇧 [English version of the README](README.md)
+
+## Скачать
+
+**[LatCyr.zip — последняя тестовая сборка](https://github.com/vvnovg/LatCyr/releases/latest)**
+
+Не релиз, версии нет — сборки помечаются коммитом, с которого собраны.
+
+### Установить
+
+1. Распакуй `LatCyr.zip`, перемести `LatCyr.app` в `/Applications`.
+2. Открой через **правый клик → Открыть** (может потребоваться из-за
+   ad-hoc подписи / Gatekeeper — обычный двойной клик покажет
+   предупреждение «неизвестный разработчик»). Если Mac пишет «файл
+   повреждён», сними карантинный атрибут:
+   ```bash
+   xattr -cr /Applications/LatCyr.app
+   ```
+3. Выдай разрешения **Accessibility** и **Input Monitoring** в
+   System Settings → Privacy & Security, указав путь именно к
+   `/Applications/LatCyr.app`.
+4. Перезапусти приложение.
+
 ## Сборка
 
 ```bash
@@ -59,6 +84,28 @@ Privacy & Security (Accessibility и Input Monitoring) и перезапусти
 > Повторный запуск `package-app.sh` переподписывает бандл, что меняет его
 > code hash и сбрасывает уже выданные разрешения — после переупаковки нужно
 > выдать их заново.
+
+## Автозапуск при входе в систему
+
+У LatCyr нет встроенного переключателя «запускать при входе» — используй
+системные Login Items. Сначала перенеси приложение в постоянное место
+(`/Applications`, а не `dist/` — это gitignore'нутая build-папка, которая
+пересоздаётся при каждой сборке):
+
+```bash
+mv dist/LatCyr.app /Applications/LatCyr.app
+```
+
+Затем: System Settings → General → **Login Items & Extensions** → нажми
+«+» под «Open at Login» → выбери `/Applications/LatCyr.app`.
+
+Приложение работает только через menu bar (без иконки в Dock и без окон),
+поэтому скрывать его при автозапуске отдельно не нужно.
+
+> Если потом пересоберёшь через `package-app.sh`, скопируй новый
+> `dist/LatCyr.app` поверх `/Applications/LatCyr.app` и выдай разрешения
+> заново (переподпись их сбрасывает) — сам пункт в Login Items
+> пересоздавать не нужно, он по-прежнему указывает на тот же путь.
 
 ## Как это работает
 
