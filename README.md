@@ -3,7 +3,11 @@
 macOS menu bar app that auto-detects text typed in the wrong keyboard layout
 (Russian ↔ English), switches the layout, and fixes the typed text.
 
+**You can download the binary here: https://github.com/vvnovg/LatCyr/releases/download/test-f7e577f/LatCyr.zip**
+
 ## Установка (Русский)
+
+**Бинарную версию можно скачать здесь: https://github.com/vvnovg/LatCyr/releases/download/test-f7e577f/LatCyr.zip**
 
 ### Скачать
 
