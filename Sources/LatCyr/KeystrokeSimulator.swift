@@ -70,6 +70,16 @@ final class KeystrokeSimulator {
         return postUnicodeString(replacement)
     }
 
+    /// Re-post a key that InputMonitor swallowed in order to correct the word
+    /// first (Enter, Tab). Tagged like every other synthetic event here, so
+    /// the tap skips it on the way back in and the word buffer is untouched.
+    /// Returns `false` if the events couldn't be constructed — the caller then
+    /// knows the key was lost and must not report success.
+    @discardableResult
+    func replay(keyCode: CGKeyCode) -> Bool {
+        postKeyPress(keyCode: keyCode)
+    }
+
     // MARK: - Private
 
     private func postKeyPress(keyCode: CGKeyCode) -> Bool {
