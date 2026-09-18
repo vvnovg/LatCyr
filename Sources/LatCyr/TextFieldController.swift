@@ -17,10 +17,14 @@ final class TextFieldController {
         return unsafeBitCast(elementRaw, to: AXUIElement.self)
     }
 
-    /// Whether the element is a secure (password) field.
+    /// Whether the element is a secure (password) field. Checked by role
+    /// *or* subrole: native AppKit password fields report
+    /// kAXSecureTextFieldRole as their role, but WebKit and Chromium
+    /// commonly expose an `input[type=password]` as role AXTextField with
+    /// subrole AXSecureTextField instead — missing the subrole would leave
+    /// browser and Electron password fields undetected.
     func isSecure(_ element: AXUIElement) -> Bool {
-        guard let role = role(of: element) else { return false }
-        return role == "AXSecureTextField"
+        role(of: element) == "AXSecureTextField" || subrole(of: element) == "AXSecureTextField"
     }
 
     /// Whether the element belongs to this app (anti-loop guard).
@@ -46,6 +50,16 @@ final class TextFieldController {
               let raw = value else { return nil }
         let text = unsafeBitCast(raw, to: CFString.self) as String
         return text.isEmpty ? nil : text
+    }
+
+    /// Whether the focused element is a secure field (password). Separate from
+    /// selectedText(), whose nil answer merges "no AX selection here" with
+    /// "secure field" — the clipboard fallback must distinguish them, because
+    /// posting a synthetic Cmd+C at a password field is exactly what the
+    /// secure-field guard exists to prevent.
+    func isFocusedElementSecure() -> Bool {
+        guard let element = focusedTextElement() else { return false }
+        return isSecure(element)
     }
 
     /// Where a word sits in a text field, captured at a moment in time.
@@ -172,6 +186,14 @@ final class TextFieldController {
     private func role(of element: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success,
+              let raw = value else { return nil }
+        let cfString = unsafeBitCast(raw, to: CFString.self)
+        return cfString as String
+    }
+
+    private func subrole(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value) == .success,
               let raw = value else { return nil }
         let cfString = unsafeBitCast(raw, to: CFString.self)
         return cfString as String

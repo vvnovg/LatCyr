@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inputMonitor = InputMonitor()
     private let permissionManager = PermissionManager()
     private let textFieldController = TextFieldController()
+    private let clipboardReader = ClipboardReader()
 
     private var statusItem: NSStatusItem?
     private var enabled = false
@@ -109,11 +110,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addSelectedWordToExceptions() {
-        guard let raw = textFieldController.selectedText() else {
+        if let selection = textFieldController.selectedText() {
+            addWordToExceptions(from: selection)
+            return
+        }
+        // selectedText() вернул nil по одной из двух причин: либо AX-
+        // выделения здесь просто нет (типично для терминалов и Electron-
+        // приложений), либо это защищённое поле (пароль, распознаётся по
+        // роли или сабролю AXSecureTextField). Синтетический Cmd+C нельзя
+        // посылать во втором случае: там macOS может не запретить
+        // копирование (это политика хоста, а не AppKit), и слово-пароль
+        // тихо уйдёт в файл исключений и в алерт. Различаем причины явно,
+        // а не полагаемся на то, что копирование из пароля не сработает.
+        guard !textFieldController.isFocusedElementSecure() else {
             showAlert(message: "Не удалось прочитать выделение. В терминалах и некоторых приложениях это не поддерживается.")
             return
         }
-        guard let word = normalizedExceptionWord(from: raw) else {
+        // AX-выделения нет — типично для терминалов и Electron-приложений.
+        // Спрашиваем само приложение, синтетическим Cmd+C.
+        clipboardReader.copySelection { [weak self] copied in
+            guard let self else { return }
+            guard let copied else {
+                self.showAlert(message: "Не удалось получить выделенный текст. Проверьте, что слово выделено.")
+                return
+            }
+            self.addWordToExceptions(from: copied)
+        }
+    }
+
+    /// Общий хвост путей получения слова — через AX и через буфер обмена, —
+    /// чтобы слово проходило одну и ту же валидацию и давало одни и те же
+    /// сообщения, каким бы путём оно ни пришло.
+    private func addWordToExceptions(from raw: String) {
+        guard let word = ExceptionWord.normalized(from: raw) else {
             showAlert(message: "Выделите слово на одном языке — русском или английском.")
             return
         }
@@ -140,19 +169,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         inputMonitor.hybridAppStore.add(bundleID)
         showAlert(message: "Добавлено как гибридное: \(name) (\(bundleID))")
-    }
-
-    /// Accepts a word consisting entirely of one alphabet — Latin or
-    /// Cyrillic (а-я plus ё), lowercased and trimmed. Rejects everything
-    /// else: empty selection, digits, punctuation, mixed scripts.
-    private func normalizedExceptionWord(from text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let lower = trimmed.lowercased()
-        let isLatin = lower.unicodeScalars.allSatisfy { ("a"..."z").contains($0) }
-        let isCyrillic = lower.unicodeScalars.allSatisfy { (0x0430...0x044F).contains($0.value) || $0.value == 0x0451 }
-        guard isLatin || isCyrillic else { return nil }
-        return lower
     }
 
     private func showAlert(message: String) {
