@@ -247,7 +247,10 @@ final class InputMonitor {
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.applyCorrection(word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: resolved.anchor)
+            self?.applyCorrection(
+                word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
+                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
+            )
         }
     }
 
@@ -260,14 +263,18 @@ final class InputMonitor {
     /// all (a terminal), so there is nothing to widen and nothing to verify
     /// against — the chain is handed to the keystroke fallback on exactly
     /// the same trust as the word itself already is.
+    ///
+    /// Returns the original (un-widened) anchor alongside the widened one —
+    /// `applyCorrection` retries with it, word alone, if the delayed
+    /// re-verification of the widened span fails (see its `wordAnchor` doc).
     private func resolveCarry(
         _ carried: [String], anchor: TextFieldController.WordAnchor?, variant: TextConverter.RussianKeyboardVariant
-    ) -> (anchor: TextFieldController.WordAnchor?, carried: [String]) {
-        guard let anchor, !carried.isEmpty else { return (anchor, carried) }
+    ) -> (anchor: TextFieldController.WordAnchor?, carried: [String], wordAnchor: TextFieldController.WordAnchor?) {
+        guard let anchor, !carried.isEmpty else { return (anchor, carried, anchor) }
         guard let widened = textFieldController.extendAnchor(anchor, backwardOver: carried, variant: variant) else {
-            return (anchor, [])
+            return (anchor, [], anchor)
         }
-        return (widened, carried)
+        return (widened, carried, anchor)
     }
 
     /// Correct right now, inside the event callback, and report whether the
@@ -299,7 +306,7 @@ final class InputMonitor {
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, boundary: nil, anchor: resolved.anchor
+            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
         ) else { return false }
         return keystrokeSimulator.replay(keyCode: keyCode)
     }
@@ -350,7 +357,8 @@ final class InputMonitor {
     @discardableResult
     private func applyCorrection(
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
-        boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil
+        boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
+        wordAnchor: TextFieldController.WordAnchor? = nil
     ) -> Bool {
         // One span, one conversion: TextConverter leaves unmapped characters
         // alone and the space key is in neither table, so joining the chain
@@ -358,7 +366,7 @@ final class InputMonitor {
         let span = (carried + [word]).joined(separator: " ")
         let converted = wasRussian ? TextConverter.toLatin(span, variant: variant) : TextConverter.toCyrillic(span, variant: variant)
 
-        let axReplaced: Bool
+        var axReplaced: Bool
         if replacePrefix {
             // Proactive path: replacePrefix operates on the word still
             // being typed (no boundary yet). It's re-derived from the live
@@ -380,6 +388,20 @@ final class InputMonitor {
             axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted)
         } else {
             axReplaced = false
+        }
+
+        // The widened-span replacement can fail for a reason that has
+        // nothing to do with the word itself — something touched the carried
+        // region in the correctionDelay window (app-side autocomplete, an
+        // inline suggestion). Before this feature, only the word's own
+        // region had to survive that window; retry once against the
+        // anchored word alone so carrying can't make a correction that would
+        // have succeeded on its own fail outright. Safe to retry:
+        // replaceAnchoredWord's mismatch guard runs before any AX write, so
+        // the first attempt cannot have partially applied.
+        if !axReplaced, !carried.isEmpty, let wordAnchor {
+            let convertedWord = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
+            axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: convertedWord)
         }
 
         if axReplaced {
