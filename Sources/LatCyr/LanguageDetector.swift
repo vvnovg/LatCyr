@@ -302,7 +302,8 @@ public enum LanguageDetector {
     ) -> Bool {
         let lower = word.lowercased()
 
-        // Word must be non-empty and contain only letters and ambiguous symbols
+        // Same guard as isWrongLayout: "об" is typed as "j,", and the comma
+        // is a letter key under the Russian layout.
         guard !lower.isEmpty,
               lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) }) else {
             return false
