@@ -133,11 +133,11 @@ final class TextFieldController {
     /// Returns nil when the live text doesn't match — the caller then
     /// corrects the anchored word alone, exactly as it did before carrying
     /// existed. That fallback is what keeps the feature strictly additive.
-    func extendAnchor(_ anchor: WordAnchor, backwardOver words: [String]) -> WordAnchor? {
+    func extendAnchor(_ anchor: WordAnchor, backwardOver words: [String], variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
         guard !words.isEmpty, let text = text(of: anchor.element) else { return nil }
         let utf16 = Array(text.utf16)
         guard anchor.range.upperBound <= utf16.count,
-              let start = extendRange(anchor.range, backwardOver: words, in: utf16) else { return nil }
+              let start = extendRange(anchor.range, backwardOver: words, in: utf16, variant: variant) else { return nil }
         return WordAnchor(element: anchor.element, range: start..<anchor.range.upperBound)
     }
 
@@ -166,7 +166,7 @@ final class TextFieldController {
 
         var spanStart = start
         if !carried.isEmpty {
-            guard let widened = extendRange(start..<prefixEnd, backwardOver: carried, in: utf16) else { return false }
+            guard let widened = extendRange(start..<prefixEnd, backwardOver: carried, in: utf16, variant: variant) else { return false }
             spanStart = widened
         }
         return replace(range: spanStart..<prefixEnd, with: replacement, in: element, utf16: utf16, cursor: cursor)
@@ -249,7 +249,17 @@ final class TextFieldController {
 
     /// The lower bound `range` reaches when widened backwards over `words`,
     /// each preceded by exactly one space, or nil if the text doesn't match.
-    private func extendRange(_ range: Range<Int>, backwardOver words: [String], in utf16: [UInt16]) -> Int? {
+    /// Not private: exercised directly by ExtendRangeTests, since it's a pure
+    /// function over a `[UInt16]` array and needs no AX call.
+    ///
+    /// After the loop matches every link, the resulting start must itself
+    /// sit at a real word boundary — mirroring the same check
+    /// `captureWordAnchor` makes for the anchored word. Without it, a
+    /// candidate can match the *tail* of a longer on-screen word: e.g. a
+    /// stale carried word "ш" is a suffix of "наш", and the space before
+    /// "наш" would otherwise satisfy the loop's own separator check, widening
+    /// the range into the middle of that word instead of stopping before it.
+    func extendRange(_ range: Range<Int>, backwardOver words: [String], in utf16: [UInt16], variant: TextConverter.RussianKeyboardVariant) -> Int? {
         var start = range.lowerBound
         for word in words.reversed() {
             guard start > 0, utf16[start - 1] == Self.spaceUTF16 else { return nil }
@@ -260,6 +270,7 @@ final class TextFieldController {
             guard candidate.lowercased() == word.lowercased() else { return nil }
             start -= length
         }
+        guard start == 0 || isBoundary(utf16[start - 1], variant: variant) else { return nil }
         return start
     }
 }

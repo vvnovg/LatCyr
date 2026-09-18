@@ -235,7 +235,7 @@ final class InputMonitor {
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
-        let resolved = resolveCarry(carried, anchor: captured)
+        let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: resolved.anchor)
         }
@@ -251,10 +251,10 @@ final class InputMonitor {
     /// against — the chain is handed to the keystroke fallback on exactly
     /// the same trust as the word itself already is.
     private func resolveCarry(
-        _ carried: [String], anchor: TextFieldController.WordAnchor?
+        _ carried: [String], anchor: TextFieldController.WordAnchor?, variant: TextConverter.RussianKeyboardVariant
     ) -> (anchor: TextFieldController.WordAnchor?, carried: [String]) {
         guard let anchor, !carried.isEmpty else { return (anchor, carried) }
-        guard let widened = textFieldController.extendAnchor(anchor, backwardOver: carried) else {
+        guard let widened = textFieldController.extendAnchor(anchor, backwardOver: carried, variant: variant) else {
             return (anchor, [])
         }
         return (widened, carried)
@@ -286,7 +286,7 @@ final class InputMonitor {
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
     ) -> Bool {
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
-        let resolved = resolveCarry(carried, anchor: captured)
+        let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
             replacePrefix: false, boundary: nil, anchor: resolved.anchor
@@ -311,7 +311,7 @@ final class InputMonitor {
         let pending = carry.carried(layoutIsRussian: wasRussian, variant: variant)
         let carried = pending.isEmpty
             ? []
-            : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant)).carried
+            : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant), variant: variant).carried
         if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
             currentWord = ""
             carry.reset()
