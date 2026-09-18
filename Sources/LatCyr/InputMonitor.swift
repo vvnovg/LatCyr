@@ -303,8 +303,18 @@ final class InputMonitor {
         // Fast-typing guard: if the buffer has grown past the captured word,
         // bail and let the retroactive path handle the full word.
         guard currentWord == word else { return }
-        if applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
+        // Verify the chain before editing rather than retrying afterwards: a
+        // failed edit may already have injected keystrokes in a terminal, and
+        // a second attempt would inject them twice. captureWordAnchor works
+        // here even mid-word — the cursor sits right after the two typed
+        // characters, so it finds exactly this word.
+        let pending = carry.carried(layoutIsRussian: wasRussian, variant: variant)
+        let carried = pending.isEmpty
+            ? []
+            : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant)).carried
+        if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
             currentWord = ""
+            carry.reset()
         }
     }
 
@@ -324,6 +334,7 @@ final class InputMonitor {
         // we just left, and letting it mix with post-switch typing would
         // feed a stale currentLayoutIsRussian into a later correction.
         currentWord = ""
+        carry.reset()
     }
 
     @discardableResult
