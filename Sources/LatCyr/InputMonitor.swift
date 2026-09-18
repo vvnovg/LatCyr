@@ -435,8 +435,12 @@ final class InputMonitor {
         // anchored word alone so carrying can't make a correction that would
         // have succeeded on its own fail outright. Safe to retry:
         // replaceAnchoredWord's mismatch guard runs before any AX write, so
-        // the first attempt cannot have partially applied.
-        if !axReplaced, !carried.isEmpty, let wordAnchor {
+        // the first attempt cannot have partially applied. Scoped to
+        // !replacePrefix so it's only ever reached from the anchored
+        // (retroactive) branch above — replacePrefix doesn't pass a
+        // wordAnchor today, but that invariant lives two functions away
+        // (performProactiveFix), not here, so it's enforced locally too.
+        if !replacePrefix, !axReplaced, !carried.isEmpty, let wordAnchor {
             let convertedWord = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
             axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: convertedWord)
         }
