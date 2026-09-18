@@ -129,10 +129,20 @@ final class InputMonitor {
         guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-        // Skip shortcuts (Cmd/Ctrl held).
-        if flags.contains(.maskCommand) || flags.contains(.maskControl) { return false }
-        // Skip modifier keys themselves.
+        // Skip modifier keys themselves — checked first so a bare Cmd tap
+        // (whose own keyDown carries .maskCommand) doesn't fall into the
+        // shortcut branch below and needlessly break a valid chain.
         if modifierKeyCodes.contains(keyCode) { return false }
+        // Skip shortcuts (Cmd/Ctrl held).
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) {
+            // Unlike currentWord, the chain describes text *behind* the
+            // current word — exactly what Ctrl+U, Ctrl+W, Cmd+Z, Cmd+X and
+            // Cmd+V rewrite. In a terminal there is no anchor to catch a
+            // stale chain, so the keystroke fallback would delete the
+            // chain's length blind.
+            carry.reset()
+            return false
+        }
 
         // Backspace (kVK_Delete = 51): shrink the word buffer.
         if keyCode == 51 {
