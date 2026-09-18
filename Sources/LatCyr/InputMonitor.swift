@@ -31,6 +31,10 @@ final class InputMonitor {
     private var currentWord = ""
     private var currentLayoutIsRussian = false
     private var currentRussianVariant: TextConverter.RussianKeyboardVariant = .pc
+    /// Short function words typed just before the current one, eligible to
+    /// be corrected along with it. See CarryBuffer and the CLAUDE.md entry
+    /// on why the criterion is contextual rather than score-based.
+    private var carry = CarryBuffer()
 
     /// Delay before applying a correction, letting the app process the
     /// boundary key first. Tunable.
@@ -81,6 +85,7 @@ final class InputMonitor {
             queue: .main
         ) { [weak self] _ in
             self?.currentWord = ""
+            self?.carry.reset()
         }
     }
 
@@ -100,6 +105,7 @@ final class InputMonitor {
         appActivationObserver = nil
         isRunning = false
         currentWord = ""
+        carry.reset()
     }
 
     // MARK: - Event handling
@@ -130,12 +136,23 @@ final class InputMonitor {
 
         // Backspace (kVK_Delete = 51): shrink the word buffer.
         if keyCode == 51 {
-            if !currentWord.isEmpty { currentWord.removeLast() }
+            if currentWord.isEmpty {
+                // Deleting past the start of the word eats the separator or
+                // the carried word itself, so the chain no longer describes
+                // the text in front of the cursor.
+                carry.reset()
+            } else {
+                currentWord.removeLast()
+            }
             return false
         }
 
         guard let char = layoutManager.character(forKeyCode: keyCode, flags: flags) else {
             currentWord = ""
+            // An arrow key moves the cursor away from the chain; anything
+            // else here is just as opaque. Either way the chain can no
+            // longer be assumed to sit right before the cursor.
+            carry.reset()
             return false
         }
 
@@ -155,21 +172,38 @@ final class InputMonitor {
             }
         } else if isWordBoundary(char) {
             if currentWord.isEmpty {
+                // A boundary with nothing buffered is a second separator
+                // (double space, ", "). A chain is only ever carried across
+                // exactly one space, so this one is spent.
+                carry.reset()
                 scheduleLeadingCharCheck(char)
             } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: currentRussianVariant) {
+                let carried = carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
+                carry.reset()
                 if char.isNewline || char == "\t" {
                     let word = currentWord
                     currentWord = ""
                     return applyCorrectionNow(
-                        word: word, wasRussian: currentLayoutIsRussian,
+                        word: word, carried: carried, wasRussian: currentLayoutIsRussian,
                         variant: currentRussianVariant, keyCode: keyCode
                     )
                 }
-                scheduleRetroactiveCheck(word: currentWord, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+            } else if char == " ", LanguageDetector.isCarriableFunctionWord(
+                word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
+                exceptions: exceptionStore.words, variant: currentRussianVariant
+            ) {
+                // Not correctable on its own — too short for the heuristic to
+                // judge — but a known function word, so the next word gets a
+                // chance to take it along.
+                carry.append(currentWord, layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
+            } else {
+                carry.reset()
             }
             currentWord = ""
         } else {
             currentWord = ""
+            carry.reset()
         }
         return false
     }
@@ -192,7 +226,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character) {
+    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -200,10 +234,30 @@ final class InputMonitor {
         // to correct it (see WordAnchor's doc comment). nil is fine here:
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
-        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let resolved = resolveCarry(carried, anchor: captured)
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.applyCorrection(word: word, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: anchor)
+            self?.applyCorrection(word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant, replacePrefix: false, boundary: boundary, anchor: resolved.anchor)
         }
+    }
+
+    /// Check the carried chain against the live text and either widen the
+    /// anchor to cover it or drop it — synchronously, at the boundary, for
+    /// the same reason the anchor itself is captured there: 50ms later the
+    /// question would be asked about text the user has since typed.
+    ///
+    /// A nil anchor is not a rejection. It means there is no AX target at
+    /// all (a terminal), so there is nothing to widen and nothing to verify
+    /// against — the chain is handed to the keystroke fallback on exactly
+    /// the same trust as the word itself already is.
+    private func resolveCarry(
+        _ carried: [String], anchor: TextFieldController.WordAnchor?
+    ) -> (anchor: TextFieldController.WordAnchor?, carried: [String]) {
+        guard let anchor, !carried.isEmpty else { return (anchor, carried) }
+        guard let widened = textFieldController.extendAnchor(anchor, backwardOver: carried) else {
+            return (anchor, [])
+        }
+        return (widened, carried)
     }
 
     /// Correct right now, inside the event callback, and report whether the
@@ -228,13 +282,14 @@ final class InputMonitor {
     /// swallowing a key we cannot give back would silently lose the user's
     /// Enter, which is worse than leaving the word uncorrected.
     private func applyCorrectionNow(
-        word: String, wasRussian: Bool,
+        word: String, carried: [String], wasRussian: Bool,
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
     ) -> Bool {
-        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let resolved = resolveCarry(carried, anchor: captured)
         guard applyCorrection(
-            word: word, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, boundary: nil, anchor: anchor
+            word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
+            replacePrefix: false, boundary: nil, anchor: resolved.anchor
         ) else { return false }
         return keystrokeSimulator.replay(keyCode: keyCode)
     }
@@ -273,10 +328,14 @@ final class InputMonitor {
 
     @discardableResult
     private func applyCorrection(
-        word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
+        word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
         boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil
     ) -> Bool {
-        let converted = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
+        // One span, one conversion: TextConverter leaves unmapped characters
+        // alone and the space key is in neither table, so joining the chain
+        // and converting the result handles the separators for free.
+        let span = (carried + [word]).joined(separator: " ")
+        let converted = wasRussian ? TextConverter.toLatin(span, variant: variant) : TextConverter.toCyrillic(span, variant: variant)
 
         let axReplaced: Bool
         if replacePrefix {
@@ -289,7 +348,7 @@ final class InputMonitor {
                !textFieldController.isOwnApp(element),
                !textFieldController.isSecure(element),
                textFieldController.isEditableText(element) {
-                axReplaced = textFieldController.replacePrefix(word, with: converted, in: element, variant: variant)
+                axReplaced = textFieldController.replacePrefix(word, carrying: carried, with: converted, in: element, variant: variant)
             } else {
                 axReplaced = false
             }
@@ -297,7 +356,7 @@ final class InputMonitor {
             // Retroactive path: anchor was captured synchronously when the
             // boundary key landed, so it targets the right word even if the
             // user has since started typing the next one.
-            axReplaced = textFieldController.replaceAnchoredWord(anchor, word: word, with: converted)
+            axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted)
         } else {
             axReplaced = false
         }
@@ -330,10 +389,10 @@ final class InputMonitor {
                 // assumes. Injecting keystrokes in either case is unsafe.
                 return false
             }
-            deleteCount = word.count + 1
+            deleteCount = span.count + 1
             typed = converted + String(boundary)
         } else {
-            deleteCount = word.count
+            deleteCount = span.count
             typed = converted
         }
         guard keystrokeSimulator.correct(deleting: deleteCount, typing: typed) else { return false }
