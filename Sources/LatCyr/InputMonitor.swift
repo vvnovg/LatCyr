@@ -35,6 +35,16 @@ final class InputMonitor {
     /// be corrected along with it. See CarryBuffer and the CLAUDE.md entry
     /// on why the criterion is contextual rather than score-based.
     private var carry = CarryBuffer()
+    /// True when `currentWord` is not a whole token but the *suffix of a
+    /// token already on screen* — the residue of a mid-word layout switch
+    /// (proactive fix, or the leading-char "/" switch, both of which clear
+    /// `currentWord` while a partial word is still displayed). Such a buffer
+    /// must never join the carry chain: no anchor or length arithmetic can
+    /// tell a fragment apart from a whole short word, and carrying it treats
+    /// characters that already sit inside an on-screen token as if they were
+    /// a standalone one, corrupting the deletion span of the next
+    /// correction (see the terminal reproduction in the finding-1 fix).
+    private var currentWordIsFragment = false
 
     /// Delay before applying a correction, letting the app process the
     /// boundary key first. Tunable.
@@ -85,6 +95,7 @@ final class InputMonitor {
             queue: .main
         ) { [weak self] _ in
             self?.currentWord = ""
+            self?.currentWordIsFragment = false
             self?.carry.reset()
         }
     }
@@ -105,6 +116,7 @@ final class InputMonitor {
         appActivationObserver = nil
         isRunning = false
         currentWord = ""
+        currentWordIsFragment = false
         carry.reset()
     }
 
@@ -199,20 +211,30 @@ final class InputMonitor {
                     )
                 }
                 scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
-            } else if char == " ", LanguageDetector.isCarriableFunctionWord(
+            } else if char == " ", !currentWordIsFragment, LanguageDetector.isCarriableFunctionWord(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
             ) {
                 // Not correctable on its own — too short for the heuristic to
                 // judge — but a known function word, so the next word gets a
-                // chance to take it along.
+                // chance to take it along. Gated on !currentWordIsFragment:
+                // a buffer that is only the tail of an already-displayed
+                // token (see the property's doc comment) must never look
+                // like a standalone function word, however it happens to
+                // convert.
                 carry.append(currentWord, layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
             } else {
                 carry.reset()
             }
             currentWord = ""
+            // A genuine boundary character has now landed on screen, so
+            // whatever comes next starts a fresh token — the fragment/whole
+            // distinction no longer applies to it, regardless of which
+            // branch above ran.
+            currentWordIsFragment = false
         } else {
             currentWord = ""
+            currentWordIsFragment = false
             carry.reset()
         }
         return false
@@ -335,6 +357,12 @@ final class InputMonitor {
             : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant), variant: variant).carried
         if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
             currentWord = ""
+            // Whatever gets typed next is not a fresh token: the word on
+            // screen already has its first two characters (now corrected),
+            // and any further letters the user types are appended to that
+            // same on-screen word, not to a new one. See the property's doc
+            // comment — this is the case it exists for.
+            currentWordIsFragment = true
             carry.reset()
         }
     }
@@ -355,6 +383,11 @@ final class InputMonitor {
         // we just left, and letting it mix with post-switch typing would
         // feed a stale currentLayoutIsRussian into a later correction.
         currentWord = ""
+        // The "/" itself is already on screen and correct (see the design
+        // note above) — whatever the user types next continues right after
+        // it, so the next buffer is again a suffix of an on-screen token,
+        // not a fresh one. See currentWordIsFragment's doc comment.
+        currentWordIsFragment = true
         carry.reset()
     }
 
