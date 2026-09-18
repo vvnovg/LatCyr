@@ -45,6 +45,23 @@ final class ExtendRangeTests: XCTestCase {
         XCTAssertEqual(start, 0)
     }
 
+    /// Every other happy-path case above lands the widened start at 0 or
+    /// right after a preceding space — nothing pins the `start > 0` half of
+    /// the trailing boundary guard (`start == 0 || isBoundary(...)`). A
+    /// chain preceded by a non-space boundary character, like an opening
+    /// paren, must still be accepted; without this test, tightening that
+    /// guard to require a literal space could narrow the feature while the
+    /// rest of the suite stayed green.
+    func testAcceptsNonSpaceBoundaryBeforeCarriedWord() {
+        // "(d ujhjl" — anchor covers "ujhjl", carried is ["d"], preceded by "(".
+        let text = "(d ujhjl"
+        let units = utf16(text)
+        let anchorStart = text.utf16.count - "ujhjl".utf16.count
+        let range = anchorStart..<units.count
+        let start = controller.extendRange(range, backwardOver: ["d"], in: units, variant: .pc)
+        XCTAssertEqual(start, 1)
+    }
+
     // MARK: - Regression: must not match the suffix of a longer on-screen word
 
     /// Reproduction: user has "наш world" on screen (a real word "наш", not
