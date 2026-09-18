@@ -326,6 +326,10 @@ final class InputMonitor {
         // here even mid-word — the cursor sits right after the two typed
         // characters, so it finds exactly this word.
         let pending = carry.carried(layoutIsRussian: wasRussian, variant: variant)
+        // .anchor (widened) is deliberately discarded here — only .carried is
+        // used. replacePrefix re-derives its own range from the live cursor
+        // rather than taking an anchor, so widening it here would be wasted
+        // work; resolveCarry is called only for its text-match verification.
         let carried = pending.isEmpty
             ? []
             : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant), variant: variant).carried
