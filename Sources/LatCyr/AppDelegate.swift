@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inputMonitor = InputMonitor()
     private let permissionManager = PermissionManager()
     private let textFieldController = TextFieldController()
+    private let clipboardReader = ClipboardReader()
 
     private var statusItem: NSStatusItem?
     private var enabled = false
@@ -109,11 +110,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addSelectedWordToExceptions() {
-        guard let raw = textFieldController.selectedText() else {
-            showAlert(message: "Не удалось прочитать выделение. В терминалах и некоторых приложениях это не поддерживается.")
+        if let selection = textFieldController.selectedText() {
+            addWordToExceptions(from: selection)
             return
         }
-        addWordToExceptions(from: raw)
+        // AX-выделения нет — типично для терминалов и Electron-приложений.
+        // Спрашиваем само приложение, синтетическим Cmd+C.
+        clipboardReader.copySelection { [weak self] copied in
+            guard let self else { return }
+            guard let copied else {
+                self.showAlert(message: "Не удалось получить выделенный текст. Проверьте, что слово выделено.")
+                return
+            }
+            self.addWordToExceptions(from: copied)
+        }
     }
 
     /// Общий хвост путей получения слова — через AX и через буфер обмена, —
