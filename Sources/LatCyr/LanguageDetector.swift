@@ -251,12 +251,27 @@ public enum LanguageDetector {
 
     // MARK: - Carrying short function words
 
-    /// Russian function words (prepositions, conjunctions, articles) that
-    /// should be carried into a correction when the word they precede is
-    /// confirmed as wrong-layout. These are the target-language words — when
-    /// the user types in the English layout and a Russian word is detected,
-    /// short English words typed in Russian layout will be checked against
-    /// the English list, not this one.
+    /// Short function words — prepositions, conjunctions, particles and the
+    /// most common short pronouns — recognised as the *conversion* of a word
+    /// that is to be corrected together with the wrong-layout word after it.
+    ///
+    /// Curated rather than derived, for the same reason as knownTLDs: there
+    /// is no heuristic left to lean on. A one- or two-letter word carries no
+    /// frequency signal, so a score over it is noise, and lowering
+    /// minWordLength or englishThreshold to admit such words would start
+    /// converting real short English ones ("the", "and", "cd", "npm").
+    ///
+    /// Several of the Latin keystrokes that produce an entry here are real
+    /// English tokens in their own right: "c" (с), "r" (к), "e" (у), "bp"
+    /// (из), "kb" (ли), "vs" (мы), "ds" (вы), "ns" (ты). That is precisely
+    /// why this list is never consulted on its own — isCarriableFunctionWord
+    /// is only ever reached once the *following* word has been confirmed
+    /// wrong-layout, and "vs ujhjl" is not a sequence real English text
+    /// produces.
+    ///
+    /// When adding a word, check it the way a TLD is checked: convert it to
+    /// the other layout and ask whether the result appears in real text as a
+    /// standalone token directly before a word of the other language.
     private static let russianFunctionWords: Set<String> = [
         "в", "во", "и", "а", "но", "да", "к", "ко", "с", "со", "о", "об",
         "у", "за", "на", "по", "до", "из", "от", "для", "над", "под",
@@ -264,24 +279,23 @@ public enum LanguageDetector {
         "ли", "бы", "вот", "я", "мы", "вы", "ты", "он", "мне",
     ]
 
-    /// English function words (articles, prepositions, conjunctions) that
-    /// should be carried into a correction when the word they precede is
-    /// confirmed as wrong-layout. These are the target-language words — when
-    /// the user types in the Russian layout and an English word is detected,
-    /// short Russian words typed in English layout will be checked against
-    /// the Russian list, not this one.
+    /// The English half. Keeping the rule per-target-language is what makes
+    /// the Russian→English direction safe for free: "и цщкду" ("и world")
+    /// converts "и" to "b", and "b" is not an English function word, so a
+    /// genuine one-letter Russian word standing before English text is
+    /// never swept up.
     private static let englishFunctionWords: Set<String> = [
         "a", "i", "an", "the", "in", "on", "at", "to", "of", "is", "it",
         "be", "or", "and", "but", "not", "no", "so", "we", "he", "my", "do",
         "if", "as", "up", "us", "me", "by", "for",
     ]
 
-    /// Whether `word` — left uncorrected on its own — should be corrected
-    /// together with the wrong-layout word that follows it. Deliberately has
-    /// no score component: on a one- or two-letter word a frequency average
-    /// carries no information. The whole safeguard is the curated list plus
-    /// the caller's context — this is never consulted on its own, only after
-    /// the *next* word has already been confirmed as wrong-layout.
+    /// Whether `word`, left uncorrected on its own, should be corrected
+    /// together with the wrong-layout word that follows it.
+    ///
+    /// Deliberately has no score component — see russianFunctionWords. The
+    /// signal the word itself cannot supply comes from the caller's context
+    /// instead, and the list bounds what that context is allowed to sweep up.
     public static func isCarriableFunctionWord(
         word: String, currentLayoutIsRussian: Bool,
         exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
