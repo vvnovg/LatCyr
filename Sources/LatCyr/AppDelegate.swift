@@ -114,6 +114,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             addWordToExceptions(from: selection)
             return
         }
+        // selectedText() вернул nil по одной из двух причин: либо AX-
+        // выделения здесь просто нет (типично для терминалов и Electron-
+        // приложений), либо это защищённое поле (пароль). Синтетический
+        // Cmd+C нельзя посылать во втором случае: там macOS может не
+        // запретить копирование (это политика хоста, а не AppKit), и слово-
+        // пароль тихо уйдёт в файл исключений и в алерт. Различаем причины
+        // явно, а не полагаемся на то, что копирование из пароля не сработает.
+        guard !textFieldController.isFocusedElementSecure() else {
+            showAlert(message: "Не удалось прочитать выделение. В терминалах и некоторых приложениях это не поддерживается.")
+            return
+        }
         // AX-выделения нет — типично для терминалов и Electron-приложений.
         // Спрашиваем само приложение, синтетическим Cmd+C.
         clipboardReader.copySelection { [weak self] copied in

@@ -25,31 +25,57 @@ final class ClipboardReader {
     /// Сколько ждать ответа приложения на Cmd+C, прежде чем сдаться.
     private let copyTimeout: TimeInterval = 0.5
 
+    /// Гвардия от повторного входа: второй вызов, пришедший, пока первый ещё
+    /// не завершился, не должен снять свой снимок буфера поверх того, что
+    /// первый вызов уже положил туда как результат копирования, — иначе
+    /// восстановление первого вызова навсегда затрёт этим снимком буфер
+    /// пользователя. Снимается на каждом пути, ведущем к `completion`.
+    private var inFlight = false
+
     /// Постит синтетический Cmd+C, отдаёт скопированную строку в
     /// `completion` и восстанавливает прежнее содержимое буфера обмена.
     /// `nil` — приложение не ответило за `copyTimeout` либо положило в
     /// буфер не-текст. `completion` всегда вызывается на главной очереди.
     func copySelection(completion: @escaping (String?) -> Void) {
-        let pasteboard = NSPasteboard.general
-        let snapshot = snapshotItems(of: pasteboard)
-        let changeCountBefore = pasteboard.changeCount
+        guard !inFlight else {
+            completion(nil)
+            return
+        }
+        inFlight = true
 
         DispatchQueue.main.asyncAfter(deadline: .now() + focusRestoreDelay) {
+            // Снимок и changeCount читаются здесь, прямо перед постингом
+            // Cmd+C, а не в начале copySelection: между вызовом метода и
+            // этим моментом проходит focusRestoreDelay (100 мс), и всё, что
+            // за это время само запишет в буфер (пользователь, менеджер
+            // буфера обмена, синхронизация), сделало бы changeCount уже
+            // изменившимся к моменту постинга — первая же проверка
+            // waitForChange приняла бы чужой контент за наш, а восстановление
+            // затёрло бы его старым снимком.
+            let pasteboard = NSPasteboard.general
+            let snapshot = self.snapshotItems(of: pasteboard)
+            let changeCountBefore = pasteboard.changeCount
+
             guard self.postCopyChord() else {
+                self.inFlight = false
                 completion(nil)
                 return
             }
             let deadline = Date().addingTimeInterval(self.copyTimeout)
-            self.waitForChange(from: changeCountBefore, deadline: deadline) { changed in
+            self.waitForChange(from: changeCountBefore, on: pasteboard, deadline: deadline) { changed in
                 guard changed else {
-                    // Ничего не пришло: в буфере лежит ровно то, что лежало,
-                    // и восстановление только затёрло бы содержимое, которое
-                    // приложение-владелец отдаёт лениво.
+                    // Ничего не пришло: в буфере на момент этой проверки лежит
+                    // ровно то, что лежало, и восстановление только затёрло бы
+                    // содержимое, которое приложение-владелец отдаёт лениво.
+                    // Если приложение всё же ответит позже, после таймаута,
+                    // восстанавливать уже некому — см. §9 дизайн-документа.
+                    self.inFlight = false
                     completion(nil)
                     return
                 }
                 let text = pasteboard.string(forType: .string)
                 self.restore(snapshot, to: pasteboard)
+                self.inFlight = false
                 // Пустую строку трактуем как отсутствие текста — так же,
                 // как это делает TextFieldController.selectedText().
                 completion((text?.isEmpty ?? true) ? nil : text)
@@ -103,10 +129,11 @@ final class ClipboardReader {
     /// приложение, которому мы только что послали Cmd+C.
     private func waitForChange(
         from changeCountBefore: Int,
+        on pasteboard: NSPasteboard,
         deadline: Date,
         completion: @escaping (Bool) -> Void
     ) {
-        if NSPasteboard.general.changeCount != changeCountBefore {
+        if pasteboard.changeCount != changeCountBefore {
             completion(true)
             return
         }
@@ -115,7 +142,7 @@ final class ClipboardReader {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
-            self.waitForChange(from: changeCountBefore, deadline: deadline, completion: completion)
+            self.waitForChange(from: changeCountBefore, on: pasteboard, deadline: deadline, completion: completion)
         }
     }
 }

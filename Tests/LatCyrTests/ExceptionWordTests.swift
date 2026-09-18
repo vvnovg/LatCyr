@@ -48,4 +48,27 @@ final class ExceptionWordTests: XCTestCase {
         XCTAssertNil(ExceptionWord.normalized(from: ""))
         XCTAssertNil(ExceptionWord.normalized(from: "   \n"))
     }
+
+    func testUppercaseYoLowercasesToCyrillicYo() {
+        // U+0401 (Ё) -> U+0451 (ё) — единственный кириллический регистр,
+        // который не является простым сдвигом кодовой точки.
+        XCTAssertEqual(ExceptionWord.normalized(from: "Ёлка"), "ёлка")
+        XCTAssertEqual(ExceptionWord.normalized(from: "ЁЛКА"), "ёлка")
+    }
+
+    func testTrimsCRLF() {
+        // Буквальная форма копии из терминала Windows/VS Code.
+        XCTAssertEqual(ExceptionWord.normalized(from: "http\r\n"), "http")
+    }
+
+    func testStripsInvisibleCharacters() {
+        // Веб- и Electron-копии чаще несут эти невидимые символы, чем
+        // неразрывный пробел: .whitespacesAndNewlines их не покрывает.
+        // U+200B ZERO WIDTH SPACE.
+        XCTAssertEqual(ExceptionWord.normalized(from: "\u{200B}http\u{200B}"), "http")
+        // U+FEFF ZERO WIDTH NO-BREAK SPACE (BOM).
+        XCTAssertEqual(ExceptionWord.normalized(from: "\u{FEFF}http"), "http")
+        // U+00AD SOFT HYPHEN.
+        XCTAssertEqual(ExceptionWord.normalized(from: "ht\u{00AD}tp"), "http")
+    }
 }

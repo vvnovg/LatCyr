@@ -48,6 +48,16 @@ final class TextFieldController {
         return text.isEmpty ? nil : text
     }
 
+    /// Whether the focused element is a secure field (password). Separate from
+    /// selectedText(), whose nil answer merges "no AX selection here" with
+    /// "secure field" — the clipboard fallback must distinguish them, because
+    /// posting a synthetic Cmd+C at a password field is exactly what the
+    /// secure-field guard exists to prevent.
+    func isFocusedElementSecure() -> Bool {
+        guard let element = focusedTextElement() else { return false }
+        return isSecure(element)
+    }
+
     /// Where a word sits in a text field, captured at a moment in time.
     /// `range` is fixed (UTF-16 offsets); the cursor may since have moved
     /// past it as the user kept typing — `replaceAnchoredWord` re-reads the

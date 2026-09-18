@@ -13,7 +13,15 @@ enum ExceptionWord {
     static func normalized(from text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let lower = trimmed.lowercased()
+        // Веб- и Electron-копии часто несут невидимые форматирующие символы
+        // (ZERO WIDTH SPACE, BOM, SOFT HYPHEN) внутри или по краям слова —
+        // `.whitespacesAndNewlines` их не ловит (кроме ZERO WIDTH SPACE по
+        // краям, который trimmingCharacters уже обрезает). Выбрасываем их до
+        // проверки алфавита, а не за одно с пунктуацией: это не видимые
+        // пользователю символы, а не разделители слов.
+        let visible = String(String.UnicodeScalarView(trimmed.unicodeScalars.filter { !$0.properties.isDefaultIgnorableCodePoint }))
+        guard !visible.isEmpty else { return nil }
+        let lower = visible.lowercased()
         let isLatin = lower.unicodeScalars.allSatisfy { ("a"..."z").contains($0) }
         let isCyrillic = lower.unicodeScalars.allSatisfy { (0x0430...0x044F).contains($0.value) || $0.value == 0x0451 }
         guard isLatin || isCyrillic else { return nil }
