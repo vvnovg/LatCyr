@@ -17,10 +17,14 @@ final class TextFieldController {
         return unsafeBitCast(elementRaw, to: AXUIElement.self)
     }
 
-    /// Whether the element is a secure (password) field.
+    /// Whether the element is a secure (password) field. Checked by role
+    /// *or* subrole: native AppKit password fields report
+    /// kAXSecureTextFieldRole as their role, but WebKit and Chromium
+    /// commonly expose an `input[type=password]` as role AXTextField with
+    /// subrole AXSecureTextField instead — missing the subrole would leave
+    /// browser and Electron password fields undetected.
     func isSecure(_ element: AXUIElement) -> Bool {
-        guard let role = role(of: element) else { return false }
-        return role == "AXSecureTextField"
+        role(of: element) == "AXSecureTextField" || subrole(of: element) == "AXSecureTextField"
     }
 
     /// Whether the element belongs to this app (anti-loop guard).
@@ -182,6 +186,14 @@ final class TextFieldController {
     private func role(of element: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success,
+              let raw = value else { return nil }
+        let cfString = unsafeBitCast(raw, to: CFString.self)
+        return cfString as String
+    }
+
+    private func subrole(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value) == .success,
               let raw = value else { return nil }
         let cfString = unsafeBitCast(raw, to: CFString.self)
         return cfString as String

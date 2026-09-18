@@ -34,11 +34,14 @@ final class ClipboardReader {
 
     /// Постит синтетический Cmd+C, отдаёт скопированную строку в
     /// `completion` и восстанавливает прежнее содержимое буфера обмена.
-    /// `nil` — приложение не ответило за `copyTimeout` либо положило в
-    /// буфер не-текст. `completion` всегда вызывается на главной очереди.
+    /// `nil` означает одно из трёх: приложение не ответило за `copyTimeout`,
+    /// оно положило в буфер не-текст, либо вызов отклонён гвардией от
+    /// повторного входа, потому что другой вызов ещё не завершился.
+    /// `completion` всегда вызывается на главной очереди — в том числе на
+    /// этом третьем пути.
     func copySelection(completion: @escaping (String?) -> Void) {
         guard !inFlight else {
-            completion(nil)
+            DispatchQueue.main.async { completion(nil) }
             return
         }
         inFlight = true
