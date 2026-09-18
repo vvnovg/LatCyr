@@ -173,7 +173,9 @@ final class InputMonitor {
             currentWord = ""
             // An arrow key moves the cursor away from the chain; anything
             // else here is just as opaque. Either way the chain can no
-            // longer be assumed to sit right before the cursor.
+            // longer be assumed to sit right before the cursor, and the
+            // buffer's relationship to on-screen text is now lost.
+            currentWordIsFragment = false
             carry.reset()
             return false
         }
@@ -205,6 +207,10 @@ final class InputMonitor {
                 if char.isNewline || char == "\t" {
                     let word = currentWord
                     currentWord = ""
+                    // A genuine boundary character was processed; the early
+                    // return here is only about correcting synchronously, not
+                    // about skipping the boundary bookkeeping.
+                    currentWordIsFragment = false
                     return applyCorrectionNow(
                         word: word, carried: carried, wasRussian: currentLayoutIsRussian,
                         variant: currentRussianVariant, keyCode: keyCode
