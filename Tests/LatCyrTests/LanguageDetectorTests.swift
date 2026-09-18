@@ -201,4 +201,53 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertGreaterThan(LanguageDetector.englishScore("hello"), 0.35)
         XCTAssertLessThan(LanguageDetector.englishScore("ghbdtn"), 0.35)
     }
+
+    // A short function word is never corrected on its own — "d" is one
+    // character, far below minWordLength — but must be recognised as
+    // carriable, so the word that follows can take it along.
+    func testCarriableFunctionWordBothDirections() {
+        XCTAssertEqual(TextConverter.toCyrillic("d", variant: .pc), "в")
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "d", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "yf", currentLayoutIsRussian: false, exceptions: [], variant: .pc))  // на
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "yfl", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // над
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "D", currentLayoutIsRussian: false, exceptions: [], variant: .pc))   // case-insensitive
+
+        XCTAssertEqual(TextConverter.toLatin("шт", variant: .pc), "in")
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "шт", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertEqual(TextConverter.toLatin("еру", variant: .pc), "the")
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "еру", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // Anything that isn't in the curated list stays out, however short.
+    func testNonFunctionWordNotCarriable() {
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "ujhjl", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // город
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "abc", currentLayoutIsRussian: false, exceptions: [], variant: .pc))   // фис
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "hello", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // рудды
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "d1", currentLayoutIsRussian: false, exceptions: [], variant: .pc))    // digit
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+    }
+
+    // "об" is typed as "j," — the comma is a letter key under the Russian
+    // layout, so the same ambiguous-symbol guard as isWrongLayout is needed
+    // or the word fails the "letters only" check.
+    func testCarriableWordWithAmbiguousSymbol() {
+        XCTAssertEqual(TextConverter.toCyrillic("j,", variant: .pc), "об")
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "j,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+    }
+
+    // A user exception beats the list, exactly as it beats the score
+    // heuristic in isWrongLayout.
+    func testExceptionOverridesCarry() {
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "d", currentLayoutIsRussian: false, exceptions: ["d"], variant: .pc))
+    }
+
+    // The direction that could bite: a legitimate one-letter Russian word
+    // standing before English text. "и цщкду" is "и world" — "и" converts to
+    // "b", which is not an English function word, so it is left alone. The
+    // list being per-target-language is what makes this free.
+    func testLegitimateRussianWordBeforeEnglishNotCarried() {
+        XCTAssertEqual(TextConverter.toLatin("и", variant: .pc), "b")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "цщкду", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "и", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
 }

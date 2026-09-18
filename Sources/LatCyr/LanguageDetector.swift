@@ -248,4 +248,66 @@ public enum LanguageDetector {
     ) -> Bool {
         currentLayoutIsRussian && first == leadingPathSignal
     }
+
+    // MARK: - Carrying short function words
+
+    /// Russian function words (prepositions, conjunctions, articles) that
+    /// should be carried into a correction when the word they precede is
+    /// confirmed as wrong-layout. These are the target-language words — when
+    /// the user types in the English layout and a Russian word is detected,
+    /// short English words typed in Russian layout will be checked against
+    /// the English list, not this one.
+    private static let russianFunctionWords: Set<String> = [
+        "в", "во", "и", "а", "но", "да", "к", "ко", "с", "со", "о", "об",
+        "у", "за", "на", "по", "до", "из", "от", "для", "над", "под",
+        "при", "про", "без", "не", "ни", "то", "так", "как", "что", "же",
+        "ли", "бы", "вот", "я", "мы", "вы", "ты", "он", "мне",
+    ]
+
+    /// English function words (articles, prepositions, conjunctions) that
+    /// should be carried into a correction when the word they precede is
+    /// confirmed as wrong-layout. These are the target-language words — when
+    /// the user types in the Russian layout and an English word is detected,
+    /// short Russian words typed in English layout will be checked against
+    /// the Russian list, not this one.
+    private static let englishFunctionWords: Set<String> = [
+        "a", "i", "an", "the", "in", "on", "at", "to", "of", "is", "it",
+        "be", "or", "and", "but", "not", "no", "so", "we", "he", "my", "do",
+        "if", "as", "up", "us", "me", "by", "for",
+    ]
+
+    /// Whether `word` — left uncorrected on its own — should be corrected
+    /// together with the wrong-layout word that follows it. Deliberately has
+    /// no score component: on a one- or two-letter word a frequency average
+    /// carries no information. The whole safeguard is the curated list plus
+    /// the caller's context — this is never consulted on its own, only after
+    /// the *next* word has already been confirmed as wrong-layout.
+    public static func isCarriableFunctionWord(
+        word: String, currentLayoutIsRussian: Bool,
+        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
+    ) -> Bool {
+        let lower = word.lowercased()
+
+        // Word must be non-empty and contain only letters and ambiguous symbols
+        guard !lower.isEmpty,
+              lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) }) else {
+            return false
+        }
+
+        // User exceptions are sacrosanct
+        guard !exceptions.contains(lower) else { return false }
+
+        // Check against the function word list for the target language
+        let converted = currentLayoutIsRussian ?
+            TextConverter.toLatin(lower, variant: variant) :
+            TextConverter.toCyrillic(lower, variant: variant)
+
+        if currentLayoutIsRussian {
+            // User typed in Russian, target is English
+            return englishFunctionWords.contains(converted)
+        } else {
+            // User typed in English, target is Russian
+            return russianFunctionWords.contains(converted)
+        }
+    }
 }
