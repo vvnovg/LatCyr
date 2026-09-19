@@ -248,4 +248,81 @@ public enum LanguageDetector {
     ) -> Bool {
         currentLayoutIsRussian && first == leadingPathSignal
     }
+
+    // MARK: - Carrying short function words
+
+    /// Short function words — prepositions, conjunctions, particles and the
+    /// most common short pronouns — recognised as the *conversion* of a word
+    /// that is to be corrected together with the wrong-layout word after it.
+    ///
+    /// Curated rather than derived, for the same reason as knownTLDs: there
+    /// is no heuristic left to lean on. A one- or two-letter word carries no
+    /// frequency signal, so a score over it is noise, and lowering
+    /// minWordLength or englishThreshold to admit such words would start
+    /// converting real short English ones ("the", "and", "cd", "npm").
+    ///
+    /// Several of the Latin keystrokes that produce an entry here are real
+    /// English tokens in their own right: "c" (с), "r" (к), "e" (у), "bp"
+    /// (из), "kb" (ли), "vs" (мы), "ds" (вы), "ns" (ты). That is precisely
+    /// why this list is never consulted on its own — isCarriableFunctionWord
+    /// is only ever reached once the *following* word has been confirmed
+    /// wrong-layout, and "vs ujhjl" is not a sequence real English text
+    /// produces.
+    ///
+    /// When adding a word, check it the way a TLD is checked: convert it to
+    /// the other layout and ask whether the result appears in real text as a
+    /// standalone token directly before a word of the other language.
+    private static let russianFunctionWords: Set<String> = [
+        "в", "во", "и", "а", "но", "да", "к", "ко", "с", "со", "о", "об",
+        "у", "за", "на", "по", "до", "из", "от", "для", "над", "под",
+        "при", "про", "без", "не", "ни", "то", "так", "как", "что", "же",
+        "ли", "бы", "вот", "я", "мы", "вы", "ты", "он", "мне",
+    ]
+
+    /// The English half. Keeping the rule per-target-language is what makes
+    /// the Russian→English direction safe for free: "и цщкду" ("и world")
+    /// converts "и" to "b", and "b" is not an English function word, so a
+    /// genuine one-letter Russian word standing before English text is
+    /// never swept up.
+    private static let englishFunctionWords: Set<String> = [
+        "a", "i", "an", "the", "in", "on", "at", "to", "of", "is", "it",
+        "be", "or", "and", "but", "not", "no", "so", "we", "he", "my", "do",
+        "if", "as", "up", "us", "me", "by", "for",
+    ]
+
+    /// Whether `word`, left uncorrected on its own, should be corrected
+    /// together with the wrong-layout word that follows it.
+    ///
+    /// Deliberately has no score component — see russianFunctionWords. The
+    /// signal the word itself cannot supply comes from the caller's context
+    /// instead, and the list bounds what that context is allowed to sweep up.
+    public static func isCarriableFunctionWord(
+        word: String, currentLayoutIsRussian: Bool,
+        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
+    ) -> Bool {
+        let lower = word.lowercased()
+
+        // Same guard as isWrongLayout: "об" is typed as "j,", and the comma
+        // is a letter key under the Russian layout.
+        guard !lower.isEmpty,
+              lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) }) else {
+            return false
+        }
+
+        // User exceptions are sacrosanct
+        guard !exceptions.contains(lower) else { return false }
+
+        // Check against the function word list for the target language
+        let converted = currentLayoutIsRussian ?
+            TextConverter.toLatin(lower, variant: variant) :
+            TextConverter.toCyrillic(lower, variant: variant)
+
+        if currentLayoutIsRussian {
+            // User typed in Russian, target is English
+            return englishFunctionWords.contains(converted)
+        } else {
+            // User typed in English, target is Russian
+            return russianFunctionWords.contains(converted)
+        }
+    }
 }

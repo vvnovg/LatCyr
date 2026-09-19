@@ -122,9 +122,34 @@ final class TextFieldController {
         return replace(range: anchor.range, with: replacement, in: anchor.element, utf16: utf16, cursor: cursor)
     }
 
+    /// Widen `anchor` backwards over `words` — the chain of short function
+    /// words typed immediately before the anchored one — so the whole span
+    /// can be replaced in a single edit.
+    ///
+    /// One edit rather than two is not a stylistic preference: two edits
+    /// would have the second computing its offsets against a snapshot the
+    /// first had already invalidated.
+    ///
+    /// Returns nil when the live text doesn't match — the caller then
+    /// corrects the anchored word alone, exactly as it did before carrying
+    /// existed. That fallback is what keeps the feature strictly additive.
+    func extendAnchor(_ anchor: WordAnchor, backwardOver words: [String], variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
+        guard !words.isEmpty, let text = text(of: anchor.element) else { return nil }
+        let utf16 = Array(text.utf16)
+        guard anchor.range.upperBound <= utf16.count,
+              let start = extendRange(anchor.range, backwardOver: words, in: utf16, variant: variant) else { return nil }
+        return WordAnchor(element: anchor.element, range: start..<anchor.range.upperBound)
+    }
+
     /// Replace the first `prefix.count` characters of the current word with
-    /// `replacement` (used by the proactive path).
-    func replacePrefix(_ prefix: String, with replacement: String, in element: AXUIElement, variant: TextConverter.RussianKeyboardVariant) -> Bool {
+    /// `replacement` (used by the proactive path). When `carried` is
+    /// non-empty, `replacement` is the conversion of the whole span
+    /// (carried words + prefix, single-space separated) and the replaced
+    /// range starts at the first carried word instead of at the prefix.
+    func replacePrefix(
+        _ prefix: String, carrying carried: [String] = [], with replacement: String,
+        in element: AXUIElement, variant: TextConverter.RussianKeyboardVariant
+    ) -> Bool {
         guard let text = text(of: element),
               let range = selectedRange(of: element) else { return false }
         let cursor = range.location + range.length
@@ -139,10 +164,20 @@ final class TextFieldController {
         let actualPrefix = String(utf16CodeUnits: Array(utf16[start..<prefixEnd]), count: prefix.utf16.count)
         guard actualPrefix.lowercased() == prefix.lowercased() else { return false }
 
-        return replace(range: start..<prefixEnd, with: replacement, in: element, utf16: utf16, cursor: cursor)
+        var spanStart = start
+        if !carried.isEmpty {
+            guard let widened = extendRange(start..<prefixEnd, backwardOver: carried, in: utf16, variant: variant) else { return false }
+            spanStart = widened
+        }
+        return replace(range: spanStart..<prefixEnd, with: replacement, in: element, utf16: utf16, cursor: cursor)
     }
 
     // MARK: - Private
+
+    /// UTF-16 code unit for the space character. The only separator a chain
+    /// is allowed to span: it is identical in both layouts, so converting
+    /// the joined span never has to decide anything about separators.
+    private static let spaceUTF16: UInt16 = 32
 
     private func replace(range: Range<Int>, with replacement: String, in element: AXUIElement, utf16: [UInt16], cursor: Int) -> Bool {
         let newText = String(utf16CodeUnits: Array(utf16[0..<range.lowerBound]), count: range.lowerBound)
@@ -210,5 +245,32 @@ final class TextFieldController {
         let ch = Character(scalar)
         if TextConverter.ambiguousLetterSymbols(for: variant).contains(ch) { return false }
         return ch.isWhitespace || ch.isPunctuation || ch.isSymbol || ch.isNewline || ch.isNumber
+    }
+
+    /// The lower bound `range` reaches when widened backwards over `words`,
+    /// each preceded by exactly one space, or nil if the text doesn't match.
+    /// Not private: exercised directly by ExtendRangeTests, since it's a pure
+    /// function over a `[UInt16]` array and needs no AX call.
+    ///
+    /// After the loop matches every link, the resulting start must itself
+    /// sit at a real word boundary — mirroring the same check
+    /// `captureWordAnchor` makes for the anchored word. Without it, a
+    /// candidate can match the *tail* of a longer on-screen word: e.g. a
+    /// stale carried word "ш" is a suffix of "наш", and the space before
+    /// "наш" would otherwise satisfy the loop's own separator check, widening
+    /// the range into the middle of that word instead of stopping before it.
+    func extendRange(_ range: Range<Int>, backwardOver words: [String], in utf16: [UInt16], variant: TextConverter.RussianKeyboardVariant) -> Int? {
+        var start = range.lowerBound
+        for word in words.reversed() {
+            guard start > 0, utf16[start - 1] == Self.spaceUTF16 else { return nil }
+            start -= 1
+            let length = word.utf16.count
+            guard length > 0, start >= length else { return nil }
+            let candidate = String(utf16CodeUnits: Array(utf16[(start - length)..<start]), count: length)
+            guard candidate.lowercased() == word.lowercased() else { return nil }
+            start -= length
+        }
+        guard start == 0 || isBoundary(utf16[start - 1], variant: variant) else { return nil }
+        return start
     }
 }
