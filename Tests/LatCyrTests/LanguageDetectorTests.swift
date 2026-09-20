@@ -95,6 +95,8 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.proactiveSwitchSignal(first: "j", second: "y", currentLayoutIsRussian: false)) // он
         XCTAssertTrue(LanguageDetector.proactiveSwitchSignal(first: "v", second: "f", currentLayoutIsRussian: false)) // ма
         XCTAssertFalse(LanguageDetector.proactiveSwitchSignal(first: "b", second: "y", currentLayoutIsRussian: false)) // by — excluded
+        XCTAssertFalse(LanguageDetector.proactiveSwitchSignal(first: "v", second: "v", currentLayoutIsRussian: false)) // vv — excluded
+        XCTAssertFalse(LanguageDetector.proactiveSwitchSignal(first: "V", second: "V", currentLayoutIsRussian: false)) // case-insensitive
         XCTAssertFalse(LanguageDetector.proactiveSwitchSignal(first: "h", second: "e", currentLayoutIsRussian: false)) // he — not strong
     }
 

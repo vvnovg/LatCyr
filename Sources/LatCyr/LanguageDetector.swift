@@ -53,7 +53,15 @@ public enum LanguageDetector {
     /// layout, strongly indicate the user means English.
     private static let strongEnglishSignals: Set<Character> = ["ф", "щ", "ш"]
     /// English 2-letter prefixes that must never trigger a proactive switch.
-    private static let excludedEnglishPrefixes: Set<String> = ["by"]
+    ///
+    /// "by" is a real English word. "vv" is not, but it opens initials,
+    /// logins and abbreviations ("vvnovg") often enough to matter, and the
+    /// Russian prefix it would produce ("мм") starts essentially nothing —
+    /// so excluding it costs no real detection. Note that the exception
+    /// *word* list cannot cover such cases: it is only consulted on the
+    /// retroactive path, which never runs when the proactive one has already
+    /// rewritten the word's first two characters.
+    private static let excludedEnglishPrefixes: Set<String> = ["by", "vv"]
     /// The single leading character that, before any letter has been typed
     /// while the Russian layout is active, strongly indicates an absolute
     /// path is about to follow (terminal use only — see InputMonitor).
