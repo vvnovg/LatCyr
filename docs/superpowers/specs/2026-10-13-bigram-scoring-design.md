@@ -47,7 +47,7 @@
 
 ### 3.2 Таблицы
 
-Два статических экземпляра: `BigramModel.russian` (алфавит 33 буквы без «ё» → 33 + 2 маркера = 35×35) и `BigramModel.english` (26 + 2 = 28×28). Лежат в сгенерированном файле `Sources/LatCyr/BigramTables.swift` с шапкой:
+Два статических экземпляра: `BigramModel.russian` (алфавит — 32 буквы: «ё» сведена к «е»; + 2 маркера = 34×34) и `BigramModel.english` (26 + 2 = 28×28). Лежат в сгенерированном файле `Sources/LatCyr/BigramTables.swift` с шапкой:
 
 - «Сгенерировано `scripts/gen-bigrams.swift`, не править руками»;
 - источник: FrequencyWords (Hermit Dave), URL и хеш коммита списков;
@@ -57,7 +57,7 @@
 
 ### 3.3 Генератор
 
-`scripts/gen-bigrams.swift`, запуск: `swift scripts/gen-bigrams.swift <ru_50k.txt> <en_50k.txt>`.
+`scripts/gen-bigrams.swift`, компилируется `swiftc` и запускается с путями к спискам и каталогу для проверочных половин (точные команды — в плане реализации).
 
 - Списки скачиваются вручную по URL с закреплённым хешем коммита (указаны в скрипте и в шапке таблиц). В репозиторий исходные списки не коммитятся.
 - Отбор: длина ≥ 3, только буквы алфавита языка (после «ё»→«е»).
@@ -89,10 +89,10 @@ return llr > llrThreshold
 
 ### 5.1 Инструмент
 
-`scripts/eval-detector.swift` заменяет одноразовый probe из `.superpowers/sdd/bigram-probe/` и коммитится. Компилируется вместе с `LanguageDetector.swift`, `TextConverter.swift`, `BigramModel.swift`, `BigramTables.swift`:
+`scripts/eval-detector/main.swift` (имя `main.swift` обязательно: `swiftc` разрешает top-level код только в нём) заменяет одноразовый probe из `.superpowers/sdd/bigram-probe/` и коммитится. Компилируется вместе с `LanguageDetector.swift`, `TextConverter.swift`, `BigramModel.swift`, `BigramTables.swift`:
 
 ```bash
-swiftc -O -o /tmp/eval-detector Sources/LatCyr/LanguageDetector.swift Sources/LatCyr/TextConverter.swift Sources/LatCyr/BigramModel.swift Sources/LatCyr/BigramTables.swift scripts/eval-detector.swift
+swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sources/LatCyr/TextConverter.swift Sources/LatCyr/BigramModel.swift Sources/LatCyr/BigramTables.swift scripts/eval-detector/main.swift
 ```
 
 Исключения всегда пустые (сырой детектор), оба варианта раскладки (`.pc`, `.apple`). Наборы:
