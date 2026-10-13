@@ -48,28 +48,30 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // Exception words — a Latin exception overrides the score heuristic in
-    // both directions. "sdd" typed correctly under the English layout is a
-    // real false positive of the plain heuristic (short, consonant-heavy
-    // acronyms score ambiguously) — exactly what the whitelist half fixes.
+    // both directions. "kfc" typed correctly under the English layout is a
+    // false positive of the raw bigram score (LLR 2.74: its conversion
+    // "лас" reads better as Russian than "kfc" does as English) — exactly
+    // what the whitelist half fixes.
     func testExceptionWordNeverConverted() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "sdd", currentLayoutIsRussian: false, exceptions: ["sdd"], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "kfc", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "kfc", currentLayoutIsRussian: false, exceptions: ["kfc"], variant: .pc))
     }
 
-    // "ssl" mistyped as "ыыд" under the Russian layout (toLatin("ыыд") ==
-    // "ssl"): both scores are too low for the ordinary heuristic to catch
-    // it — exactly what the forced-correction half fixes.
+    // "usb" mistyped as "гыи" under the Russian layout (toLatin("гыи") ==
+    // "usb"): its LLR is 0.89, below the three-letter threshold, so the
+    // ordinary score does not catch it — exactly what the forced-correction
+    // half fixes.
     func testExceptionWordAlwaysCorrected() {
-        XCTAssertEqual(TextConverter.toLatin("ыыд", variant: .pc), "ssl")
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ыыд", currentLayoutIsRussian: true, exceptions: ["ssl"], variant: .pc))
+        XCTAssertEqual(TextConverter.toLatin("гыи", variant: .pc), "usb")
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "гыи", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "гыи", currentLayoutIsRussian: true, exceptions: ["usb"], variant: .pc))
     }
 
     // Same two behaviors, mirrored for a Cyrillic exception word — proves
     // the check isn't hardcoded to Latin-only exceptions.
     func testCyrillicExceptionWordSymmetric() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ффф", currentLayoutIsRussian: true, exceptions: ["ффф"], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "щщщ", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "щщщ", currentLayoutIsRussian: true, exceptions: ["щщщ"], variant: .pc))
 
         XCTAssertEqual(TextConverter.toCyrillic("dep", variant: .pc), "вуз")
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "dep", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
@@ -79,15 +81,16 @@ final class LanguageDetectorTests: XCTestCase {
     // The Russian keyboard variant gates which punctuation keys count as
     // letters (LanguageDetector's own guard, not just TextConverter) —
     // "`" is a letter-producing key only under .pc, "\" only under .apple.
-    // Hand-verified: englishScore("h`c") ≈ 0.21 (< 0.35), russianScore of
-    // its .pc conversion "рёс" ≈ 0.498 (> 0.4), diff ≈ 0.29 (> 0.1) — a
-    // genuine wrong-layout hit once the guard admits the backtick.
+    // "gj`k" (.pc) and "gj\k" (.apple) are "пошёл" typed under the English
+    // layout: LLR 4.93 in its own variant — a genuine wrong-layout hit once
+    // the guard admits the "ё" key; under the other variant the guard
+    // rejects the word before it is scored.
     func testRussianVariantGatesAmbiguousLetterGuard() {
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "h`c", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "h`c", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "gj`k", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "gj`k", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
 
-        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "h\\c", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
-        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "h\\c", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "gj\\k", currentLayoutIsRussian: false, exceptions: [], variant: .apple))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "gj\\k", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
     // Proactive: English layout → Russian
@@ -115,20 +118,19 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // A word whose conversion contains punctuation — a domain name — must be
-    // scored on its letters alone. "фьфящтюву" is "amazon.de" typed under the
-    // Russian layout: the "ю" comes from the "." key but is a Russian vowel
-    // with its own frequency weight, and counting it puts russianScore at
-    // 0.424 — just over the 0.4 threshold, so the whole correction was
-    // dropped. Scored without it the word sits at 0.323 and is corrected in
-    // full, dot included.
+    // corrected whole, dot included. "фьфящтюву" is "amazon.de" typed under the
+    // Russian layout. The English model skips the dot (it is not in its
+    // alphabet); the Russian side is scored whole. Under the old
+    // letter-frequency score the "ю" from the "." key held the word just over
+    // the threshold, which is why scoring used to filter punctuation out.
     func testDomainWithPunctuationDetected() {
         XCTAssertEqual(TextConverter.toLatin("фьфящтюву", variant: .pc), "amazon.de")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "фьфящтюву", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
     }
 
-    // Domains that already scored correctly must keep doing so: filtering
-    // shortens the scored word, and a shorter word must not drift back over
-    // a threshold.
+    // Domains that already scored correctly must keep doing so: skipping the
+    // dot shortens the English side, and a shorter word must not drift below
+    // its threshold.
     func testDomainsThatAlreadyWorkedStillDetected() {
         XCTAssertEqual(TextConverter.toLatin("пщщпдуюсщь", variant: .pc), "google.com")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "пщщпдуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
@@ -138,8 +140,8 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // The mirror case: a Cyrillic letter that merely *converts* to punctuation
-    // is still a real letter of a correctly typed Russian word. Filtering must
-    // not turn any of these into a false positive.
+    // is still a real letter of a correctly typed Russian word. Skipping the
+    // conversion's punctuation must not turn any of these into a false positive.
     func testCorrectRussianWordsWhoseConversionHasPunctuationNotTouched() {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "пою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // gj.
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "мою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // vj.
@@ -149,8 +151,8 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // "ё" sits on a different physical key in each Russian variant ("`" under
-    // .pc, "\" under .apple), but both convert to punctuation, so both must be
-    // filtered out of scoring — and "объём" stays untouched either way.
+    // .pc, "\" under .apple), but both convert to punctuation, and the English
+    // model skips both — and "объём" stays untouched either way.
     func testPunctuationFilteringHoldsForBothVariants() {
         XCTAssertEqual(TextConverter.toLatin("объём", variant: .pc), "j,]`v")
         XCTAssertEqual(TextConverter.toLatin("объём", variant: .apple), "j,]\\v")
@@ -158,9 +160,10 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "объём", currentLayoutIsRussian: true, exceptions: [], variant: .apple))
     }
 
-    // Filtering is driven by the conversion, never by the original: under the
-    // English layout "," and "]" are the "б" and "ъ" keys, so these words must
-    // behave exactly as they did before.
+    // Punctuation in the original is skipped by the English model, while the
+    // conversion's letters are scored in full: under the English layout ","
+    // and "]" are the "б" and "ъ" keys, so these words must behave exactly as
+    // they did before.
     func testPunctuationInOriginalOnlyStillDetected() {
         XCTAssertEqual(TextConverter.toCyrillic("j,]trn", variant: .pc), "объект")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "j,]trn", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
@@ -169,15 +172,28 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
-    // Some domains score as plausible Russian even after punctuation
-    // filtering: "нщгегиуюсщь" is "youtube.com", but its filtered form is
-    // made of high-frequency Russian letters (н, е, и, у, с) and scores
-    // 0.468 — above russianThreshold. A conversion that reads as a domain
-    // name is an unconditional signal instead: domains are always Latin.
+    // A buffer of punctuation keys alone has no letter for the current
+    // layout's model to score — its side sits at the probability floor and
+    // any conversion looks infinitely better. Code fences, ellipses and
+    // Python docstring quotes must never be "corrected" into «ёёё» or «ююю».
+    func testPunctuationOnlyBuffersNotTouched() {
+        for (word, variant) in [("...", TextConverter.RussianKeyboardVariant.pc), ("....", .pc), ("```", .pc), ("\\\\\\", .apple),
+                                ("'''", .pc), (",,,", .pc), (";;;", .pc), ("[[]]", .pc), ("[];", .pc), ("...", .apple)] {
+            XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                           "\(word) (\(variant)) wrongly corrected")
+            XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: word, currentLayoutIsRussian: false, variant: variant))
+        }
+    }
+
+    // "нщгегиуюсщь" is "youtube.com". Under the old letter-frequency score
+    // it read as plausible Russian (н, е, и, у, с are all high-frequency
+    // letters); the bigram model catches it on its own now (LLR 2.76). The
+    // domain rule stays as an unconditional safeguard, like the exception
+    // list: domains are always Latin.
     func testDomainNameOverridesScoreHeuristic() {
         XCTAssertEqual(TextConverter.toLatin("нщгегиуюсщь", variant: .pc), "youtube.com")
-        XCTAssertGreaterThan(LanguageDetector.russianScore("нщгегиусщь"), LanguageDetector.russianThreshold)
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertGreaterThan(LanguageDetector.wrongLayoutLLR(word: "нщгегиуюсщь", currentLayoutIsRussian: true, variant: .pc)!, LanguageDetector.llrThresholds.longer)
     }
 
     // Real Russian words whose conversion superficially resembles a domain.
@@ -196,12 +212,11 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "моюся", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
     }
 
-    // Scores
+    // Scores are mean natural-log bigram probabilities now: negative,
+    // closer to zero is more plausible. Only the ordering is meaningful.
     func testScores() {
-        XCTAssertGreaterThan(LanguageDetector.russianScore("привет"), 0.4)
-        XCTAssertLessThan(LanguageDetector.russianScore("руддщ"), 0.4)
-        XCTAssertGreaterThan(LanguageDetector.englishScore("hello"), 0.35)
-        XCTAssertLessThan(LanguageDetector.englishScore("ghbdtn"), 0.35)
+        XCTAssertGreaterThan(LanguageDetector.russianScore("привет"), LanguageDetector.russianScore("руддщ") + 1)
+        XCTAssertGreaterThan(LanguageDetector.englishScore("hello"), LanguageDetector.englishScore("ghbdtn") + 1)
     }
 
     // A short function word is never corrected on its own — "d" is one
@@ -251,5 +266,90 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertEqual(TextConverter.toLatin("и", variant: .pc), "b")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "цщкду", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
         XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: "и", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // The motivating misses: frequent English words typed under the Russian
+    // layout whose Cyrillic form is made of frequent Russian letters. The
+    // letter-frequency score held all of them over the old 0.4 threshold
+    // ("ашду" 0.463, "ершы" 0.483, "ащк" 0.527); letter pairs give them
+    // away. No exceptions — the bundled list must not be what catches them.
+    func testFrequentEnglishWordsCaughtWithoutExceptions() {
+        for typed in ["ашду", "ершы", "ащк", "цшер", "фку", "ерфе"] { // file this for with are that
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                XCTAssertTrue(LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: true, exceptions: [], variant: variant),
+                              "\(typed) (\(variant)) not corrected")
+            }
+        }
+    }
+
+    // Correct Russian words built from rare pairs (щ, ъ, ы, э). These are
+    // where a bigram model is most likely to misfire.
+    func testRussianWordsWithRarePairsNotTouched() {
+        for word in ["шею", "щука", "съезд", "объект", "этот", "мысль", "вообще", "подъезд",
+                     "взгляд", "чувство", "следующий", "объявление", "здравствуйте"] {
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: true, exceptions: [], variant: variant),
+                               "\(word) (\(variant)) wrongly corrected")
+            }
+        }
+    }
+
+    // The most frequent Russian words whose letters sit on punctuation keys
+    // (б, ю, ж, ё) or map to English vowels (у, ы, е). Scoring them with
+    // those letters cut out ("был" as "ыл", "ещё" as "ещ") flagged them —
+    // the original is scored whole. Several were also false positives of
+    // the old letter-frequency score ("уже", "еще", "хочу", "ему", "буду").
+    func testFrequentRussianWordsNotTouched() {
+        for word in ["был", "быть", "была", "были", "уже", "ещё", "еще", "тут", "лучше",
+                     "хочу", "ему", "буду", "друг", "будет", "может", "между"] {
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: true, exceptions: [], variant: variant),
+                               "\(word) (\(variant)) wrongly corrected")
+            }
+        }
+    }
+
+    // Short English and command-line tokens typed correctly. Several are
+    // barely English as letter sequences — exactly why thresholds must not
+    // simply be lowered.
+    func testShortEnglishTokensNotTouched() {
+        for word in ["the", "and", "npm", "git", "ssh", "sudo", "grep", "brew", "http", "www", "usb", "json", "yaml", "mkdir", "chmod"] {
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                               "\(word) (\(variant)) wrongly corrected")
+            }
+        }
+    }
+
+    // The score half alone: guards still apply, exceptions and domains do not.
+    func testWrongLayoutLLR() {
+        XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: "gh", currentLayoutIsRussian: false, variant: .pc))
+        XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: "ghbdtn1", currentLayoutIsRussian: false, variant: .pc))
+        let wrong = LanguageDetector.wrongLayoutLLR(word: "ghbdtn", currentLayoutIsRussian: false, variant: .pc)!
+        let right = LanguageDetector.wrongLayoutLLR(word: "hello", currentLayoutIsRussian: false, variant: .pc)!
+        XCTAssertGreaterThan(wrong, LanguageDetector.llrThresholds.longer)
+        XCTAssertLessThan(right, LanguageDetector.llrThresholds.longer)
+    }
+
+    // Explicit thresholds override the defaults — the evaluation tool
+    // sweeps them to draw its grid.
+    func testExplicitThresholds() {
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn", currentLayoutIsRussian: false, exceptions: [], variant: .pc, thresholds: .uniform(-100)))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ghbdtn", currentLayoutIsRussian: false, exceptions: [], variant: .pc, thresholds: .uniform(100)))
+    }
+
+    // A three-letter word gives the model four transitions to judge, so its
+    // LLR is noisy ("тут" scores well above many genuine misses) and needs
+    // the widest margin; the margin narrows as words get longer.
+    func testThresholdsByLength() {
+        let t = LanguageDetector.LLRThresholds(threeLetters: 3, fourLetters: 2, longer: 1)
+        XCTAssertEqual(t.threshold(forLength: 3), 3)
+        XCTAssertEqual(t.threshold(forLength: 4), 2)
+        XCTAssertEqual(t.threshold(forLength: 5), 1)
+        XCTAssertEqual(t.threshold(forLength: 12), 1)
+
+        let chosen = LanguageDetector.llrThresholds
+        XCTAssertGreaterThanOrEqual(chosen.threeLetters, chosen.fourLetters)
+        XCTAssertGreaterThanOrEqual(chosen.fourLetters, chosen.longer)
     }
 }
