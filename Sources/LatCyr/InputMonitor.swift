@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 import CoreGraphics
 import Foundation
 
@@ -310,12 +311,17 @@ final class InputMonitor {
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        // Read right away: the next captureWordAnchor call overwrites it.
+        let anchorFailure = textFieldController.lastAnchorFailure
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
-        Log.debug("retroactive scheduled: anchor=\(captured != nil) carried=\(carried.count) keptCarried=\(resolved.carried.count)")
+        // Secure Event Input held by another app hides keystrokes from the
+        // tap entirely; logging it here lets support spot it next to a miss.
+        Log.debug("retroactive scheduled: anchor=\(captured != nil) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
                 word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
+                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+                anchorFailure: anchorFailure
             )
         }
     }
@@ -369,10 +375,12 @@ final class InputMonitor {
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
     ) -> Bool {
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let anchorFailure = textFieldController.lastAnchorFailure
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
+            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+            anchorFailure: anchorFailure
         ) else { return false }
         guard keystrokeSimulator.replay(keyCode: keyCode) else {
             Log.error("could not re-post swallowed key \(keyCode); key delivered unswallowed")
@@ -447,7 +455,8 @@ final class InputMonitor {
     private func applyCorrection(
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
         boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
-        wordAnchor: TextFieldController.WordAnchor? = nil
+        wordAnchor: TextFieldController.WordAnchor? = nil,
+        anchorFailure: TextFieldController.AnchorFailure? = nil
     ) -> Bool {
         // One span, one conversion: TextConverter leaves unmapped characters
         // alone and the space key is in neither table, so joining the chain
@@ -456,6 +465,10 @@ final class InputMonitor {
         let converted = wasRussian ? TextConverter.toLatin(span, variant: variant) : TextConverter.toCyrillic(span, variant: variant)
 
         var axReplaced: Bool
+        // Why axReplaced is false, for the not-applied line: "AX failed"
+        // alone can't tell a missing target from a rejected write. A closure
+        // so nothing is formatted unless that line is actually logged.
+        var axFailure: () -> String = { "AX replace rejected or not applied" }
         if replacePrefix {
             // Proactive path: replacePrefix operates on the word still
             // being typed (no boundary yet). It's re-derived from the live
@@ -469,6 +482,7 @@ final class InputMonitor {
                 axReplaced = textFieldController.replacePrefix(word, carrying: carried, with: converted, in: element, variant: variant)
             } else {
                 axReplaced = false
+                axFailure = { "no focused editable element" }
             }
         } else if let anchor {
             // Retroactive path: anchor was captured synchronously when the
@@ -477,6 +491,7 @@ final class InputMonitor {
             axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted)
         } else {
             axReplaced = false
+            axFailure = { "no anchor captured (\(anchorFailure.map { "\($0)" } ?? "unknown"))" }
         }
 
         // The widened-span replacement can fail for a reason that has
@@ -495,6 +510,13 @@ final class InputMonitor {
         if !replacePrefix, !axReplaced, !carried.isEmpty, let wordAnchor {
             let convertedWord = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
             axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: convertedWord)
+            if axReplaced {
+                // Only the word was replaced; the chain stays as typed.
+                Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(convertedWord)) carried=0")
+                switchLayout(wasRussian: wasRussian)
+                return true
+            }
+            axFailure = { "AX replace rejected or not applied (widened span and word-only retry)" }
         }
 
         let path = replacePrefix ? "proactive" : "retroactive"
@@ -510,7 +532,7 @@ final class InputMonitor {
         // terminals: without an AX element we can't check isSecure/isOwnApp,
         // so blindly injecting into arbitrary apps would be unsafe.
         guard keystrokeSimulator.usesKeystrokeFallback else {
-            logNotApplied("AX replacement failed and this app has no keystroke fallback", proactive: replacePrefix, span: span)
+            logNotApplied("\(axFailure()); this app has no keystroke fallback", proactive: replacePrefix, span: span)
             return false
         }
 
@@ -548,11 +570,11 @@ final class InputMonitor {
 
     /// A retroactive miss is a lost correction (error); a proactive miss
     /// still has the retroactive check at the word boundary behind it (debug).
-    private func logNotApplied(_ reason: String, proactive: Bool, span: String) {
+    private func logNotApplied(_ reason: @autoclosure () -> String, proactive: Bool, span: String) {
         if proactive {
-            Log.debug("proactive correction not applied: \(reason) (span \(Sensitive(span)))")
+            Log.debug("proactive correction not applied: \(reason()) (span \(Sensitive(span)))")
         } else {
-            Log.error("correction not applied: \(reason) (span \(Sensitive(span)))")
+            Log.error("correction not applied: \(reason()) (span \(Sensitive(span)))")
         }
     }
 

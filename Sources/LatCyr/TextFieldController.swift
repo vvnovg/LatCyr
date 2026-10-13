@@ -81,29 +81,63 @@ final class TextFieldController {
     /// target (no focused element, own app, secure field, or the text right
     /// before the cursor doesn't match `word` — e.g. a terminal, whose
     /// visible content isn't a real AX value).
+    /// Why `captureWordAnchor` returned nil. A value, not a string: it is
+    /// recorded inside the event tap callback on every miss, and describing
+    /// it is left to the log line, which is never built while logging is off.
+    /// Words are carried as `Sensitive`, and `description` prints them only
+    /// redacted (length and alphabet) — it is used in plain interpolation.
+    enum AnchorFailure: CustomStringConvertible {
+        case noFocusedElement, ownApp, secureField, notEditableText, cursorOutsideText, noWordBeforeCursor
+        case textMismatch(actual: Sensitive, typed: Sensitive)
+
+        var description: String {
+            switch self {
+            case .noFocusedElement: return "no focused element"
+            case .ownApp: return "own app"
+            case .secureField: return "secure field"
+            case .notEditableText: return "not editable text"
+            case .cursorOutsideText: return "cursor outside text"
+            case .noWordBeforeCursor: return "no word before cursor"
+            case let .textMismatch(actual, typed): return "text before cursor \(actual) != typed \(typed)"
+            }
+        }
+    }
+
+    /// Why the most recent `captureWordAnchor` call returned nil (nil after
+    /// a successful capture). The debug lines inside it say the same, but
+    /// only at debug level; InputMonitor reads this right after the call so
+    /// a lost correction's error line can name the reason at error level.
+    private(set) var lastAnchorFailure: AnchorFailure?
+
     func captureWordAnchor(matching word: String, variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
         // Split guards so the log names the reason — "no anchor" alone
         // can't tell a terminal from a stale cursor from a secure field.
+        lastAnchorFailure = nil
         guard let element = focusedTextElement() else {
+            lastAnchorFailure = .noFocusedElement
             Log.debug("anchor: no focused element")
             return nil
         }
         guard !isOwnApp(element) else {
+            lastAnchorFailure = .ownApp
             Log.debug("anchor: own app")
             return nil
         }
         guard !isSecure(element) else {
+            lastAnchorFailure = .secureField
             Log.debug("anchor: secure field")
             return nil
         }
         // Same check as isEditableText(element), read once instead of twice.
         guard let text = text(of: element), let range = selectedRange(of: element) else {
+            lastAnchorFailure = .notEditableText
             Log.debug("anchor: not editable text (role \(role(of: element) ?? "-"), subrole \(subrole(of: element) ?? "-"))")
             return nil
         }
         let cursor = range.location + range.length
         let utf16 = Array(text.utf16)
         guard cursor >= 0, cursor <= utf16.count else {
+            lastAnchorFailure = .cursorOutsideText
             Log.debug("anchor: cursor \(cursor) outside text length \(utf16.count)")
             return nil
         }
@@ -113,12 +147,14 @@ final class TextFieldController {
         var start = end
         while start > 0 && !isBoundary(utf16[start - 1], variant: variant) { start -= 1 }
         guard start < end else {
+            lastAnchorFailure = .noWordBeforeCursor
             Log.debug("anchor: no word before cursor (role \(role(of: element) ?? "-"))")
             return nil
         }
 
         let actualWord = String(utf16CodeUnits: Array(utf16[start..<end]), count: end - start)
         guard actualWord.lowercased() == word.lowercased() else {
+            lastAnchorFailure = .textMismatch(actual: Sensitive(actualWord), typed: Sensitive(word))
             Log.debug("anchor: text before cursor \(Sensitive(actualWord)) != typed \(Sensitive(word)) (role \(role(of: element) ?? "-"))")
             return nil
         }
