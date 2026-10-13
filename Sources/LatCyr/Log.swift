@@ -1,8 +1,7 @@
 import AppKit
 
-/// A log message. Its own string interpolation is the one place that may
-/// print a `Sensitive` value unredacted — and only while typed-text capture
-/// is on. Everything else interpolates as `String(describing:)`.
+/// A log message. Every interpolated value goes through
+/// `String(describing:)`, so a `Sensitive` prints its redacted form.
 struct LogMessage: ExpressibleByStringInterpolation {
     let text: String
 
@@ -16,8 +15,6 @@ struct LogMessage: ExpressibleByStringInterpolation {
 
     struct Interpolation: StringInterpolationProtocol {
         var result = ""
-        /// Read once per message, so a message is never half raw, half redacted.
-        private let captureText = Log.captureText
 
         init(literalCapacity: Int, interpolationCount: Int) {
             result.reserveCapacity(literalCapacity * 2)
@@ -25,11 +22,6 @@ struct LogMessage: ExpressibleByStringInterpolation {
 
         mutating func appendLiteral(_ literal: String) {
             result += literal
-        }
-
-        /// Non-generic, so it wins over the generic overload below.
-        mutating func appendInterpolation(_ value: Sensitive) {
-            result += captureText ? value.text : value.description
         }
 
         mutating func appendInterpolation<T>(_ value: T) {
@@ -70,8 +62,6 @@ enum LogLine {
 /// (FileLogger's own queue), never here.
 enum Log {
     static var level: LogLevel = .off
-    /// Typed-text capture. Never persisted — LogController owns its timer.
-    static var captureText = false
     /// Receives fully formatted lines. nil means nowhere to write.
     static var sink: ((String) -> Void)?
     /// Overridable for tests.

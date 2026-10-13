@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enabled = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        logController.onCaptureExpired = { [weak self] in self?.rebuildMenu() }
         logController.start(header: logHeader)
         setupStatusItem()
         if permissionManager.isFullyAuthorized {

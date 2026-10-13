@@ -44,10 +44,6 @@ final class LogRedactorTests: XCTestCase {
     func testAnchorFailureMismatchIsAlwaysRedacted() {
         let failure = TextFieldController.AnchorFailure.textMismatch(actual: Sensitive("ghbdtn"), typed: Sensitive("привет"))
         XCTAssertEqual(failure.description, "text before cursor [6 lat] != typed [6 cyr]")
-        // Even with typed-text capture on: the failure is interpolated as a
-        // plain value, not as Sensitive, so LogMessage can't unredact it.
-        Log.captureText = true
-        defer { Log.captureText = false }
         let message: LogMessage = "reason \(failure)"
         XCTAssertEqual(message.text, "reason text before cursor [6 lat] != typed [6 cyr]")
     }

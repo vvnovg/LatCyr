@@ -25,16 +25,15 @@ enum LogRedactor {
     }
 }
 
-/// User text headed for the log. Only `LogMessage`'s own interpolation may
-/// print `text` as-is, and only while typed-text capture is on; every other
-/// way of turning this into a string goes through `description`, which is
-/// redacted. Safe by default: forgetting the capture check can't leak.
+/// User text headed for the log. Redacted on construction and the raw text
+/// is not kept: nothing — no interpolation, `dump()`, debugger or future
+/// "capture mode" — can print what the user typed. Typed text never reaches
+/// the log file, because in a terminal a password prompt is indistinguishable
+/// from ordinary input; support asks the user for the word instead.
 struct Sensitive: CustomStringConvertible {
-    let text: String
+    let description: String
 
     init(_ text: String) {
-        self.text = text
+        description = LogRedactor.redact(text)
     }
-
-    var description: String { LogRedactor.redact(text) }
 }

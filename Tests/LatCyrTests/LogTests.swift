@@ -11,13 +11,11 @@ final class LogTests: XCTestCase {
         Log.frontmostAppID = { "test.app" }
         Log.sink = { [unowned self] in self.lines.append($0) }
         Log.level = .debug
-        Log.captureText = false
     }
 
     override func tearDown() {
         Log.level = .off
         Log.sink = nil
-        Log.captureText = false
         Log.frontmostAppID = savedFrontmostAppID
     }
 
@@ -28,10 +26,11 @@ final class LogTests: XCTestCase {
         XCTAssertEqual(message.text, "word [6 cyr]")
     }
 
-    func testSensitiveIsRawWhileCapturing() {
-        Log.captureText = true
-        let message: LogMessage = "word \(Sensitive("привет"))"
-        XCTAssertEqual(message.text, "word привет")
+    func testSensitiveKeepsNoRawText() {
+        // No stored property may hold the raw word: dump(), the debugger
+        // and any future code path read through Mirror, not description.
+        let children = Mirror(reflecting: Sensitive("привет")).children.map { "\($0.value)" }
+        XCTAssertEqual(children, ["[6 cyr]"])
     }
 
     func testOtherInterpolationsPassThrough() {

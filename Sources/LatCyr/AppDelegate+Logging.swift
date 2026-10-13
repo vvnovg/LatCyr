@@ -37,8 +37,6 @@ extension AppDelegate {
 
     func buildLoggingMenuItem() -> NSMenuItem {
         let submenu = NSMenu()
-        // Manual enabling: the text-capture item is greyed out below .info.
-        submenu.autoenablesItems = false
 
         for level in LogLevel.allCases {
             let item = NSMenuItem(title: level.title, action: #selector(selectLogLevel(_:)), keyEquivalent: "")
@@ -64,18 +62,6 @@ extension AppDelegate {
 
         submenu.addItem(.separator())
 
-        let captureItem = NSMenuItem(
-            title: "Записывать набранный текст (\(Int(LogController.captureDuration / 60)) мин)",
-            action: #selector(toggleTextCapture),
-            keyEquivalent: ""
-        )
-        captureItem.target = self
-        captureItem.state = logController.isCapturingText ? .on : .off
-        captureItem.isEnabled = logController.level >= .info
-        submenu.addItem(captureItem)
-
-        submenu.addItem(.separator())
-
         let revealItem = NSMenuItem(title: "Показать лог в Finder", action: #selector(revealLog), keyEquivalent: "")
         revealItem.target = self
         submenu.addItem(revealItem)
@@ -93,11 +79,6 @@ extension AppDelegate {
 
     @objc func selectLogSize(_ sender: NSMenuItem) {
         logController.setMaxTotalBytes(sender.tag, header: logHeader)
-        rebuildMenu()
-    }
-
-    @objc func toggleTextCapture() {
-        logController.setCapturingText(!logController.isCapturingText)
         rebuildMenu()
     }
 
