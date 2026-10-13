@@ -92,7 +92,7 @@ extension AppDelegate {
     }
 
     @objc func selectLogSize(_ sender: NSMenuItem) {
-        logController.setMaxTotalBytes(sender.tag)
+        logController.setMaxTotalBytes(sender.tag, header: logHeader)
         rebuildMenu()
     }
 

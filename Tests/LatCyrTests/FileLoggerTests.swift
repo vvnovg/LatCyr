@@ -115,6 +115,23 @@ final class FileLoggerTests: XCTestCase {
         XCTAssertEqual(current, "H\na\n")
     }
 
+    func testRotationWhileLoggingOffDoesNotWriteHeaderTwiceOnReenable() throws {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 500)
+        logger.setHeader(["H"])
+        for _ in 0..<5 { logger.write(line9) }
+        logger.setMaxTotalBytes(200)   // rotates, headerPending = true
+        logger.close()                 // logging switched off
+        // off -> on, as LogController does it: close, setHeader, then the
+        // header block itself written as ordinary lines.
+        logger.close()
+        logger.setHeader(["H"])
+        logger.write("H")
+        logger.write("a")
+        logger.flush()
+        let current = try String(contentsOf: dir.appendingPathComponent("latcyr.log"), encoding: .utf8)
+        XCTAssertEqual(current, "H\na\n")
+    }
+
     func testTotalCapHoldsWithRepeatedHeader() {
         let logger = FileLogger(directory: dir, maxTotalBytes: 500) // 100 per file
         logger.setHeader(["header-line-1", "header-line-2"])       // 28 bytes

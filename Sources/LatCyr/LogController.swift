@@ -51,6 +51,9 @@ final class LogController {
             // logging back on retries a file that previously failed to open.
             fileLogger.close()
             writeHeader(header())
+        } else {
+            // Level changed while on: the repeated header names the level.
+            fileLogger.setHeader(Log.repeatedHeaderLines(header()))
         }
         // Logged under the new level: records a switch *up* from below info.
         if old < .info {
@@ -58,8 +61,13 @@ final class LogController {
         }
     }
 
-    func setMaxTotalBytes(_ bytes: Int) {
+    func setMaxTotalBytes(_ bytes: Int, header: () -> [String]) {
         settings.maxTotalBytes = bytes
+        // The repeated header names the size limit; refresh only the stored
+        // copy, no extra header block goes into the current file.
+        if Log.level != .off {
+            fileLogger.setHeader(Log.repeatedHeaderLines(header()))
+        }
         fileLogger.setMaxTotalBytes(settings.maxTotalBytes)
         Log.info("log size limit \(settings.maxTotalBytes / LogSettings.megabyte) MB")
     }

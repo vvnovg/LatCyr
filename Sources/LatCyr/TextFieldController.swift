@@ -71,16 +71,6 @@ final class TextFieldController {
         let range: Range<Int>
     }
 
-    /// Capture the position of the word immediately before the cursor, for
-    /// later use with `replaceAnchoredWord`. Capture early (right when the
-    /// boundary key is seen) rather than at correction time: `correctionDelay`
-    /// means correction happens ~50ms later, and if the user has since
-    /// started the next word without pausing, a cursor-relative lookup done
-    /// *then* would find the new word instead — silently failing to correct
-    /// the one this anchor is for. Returns nil if there's no AX-correctable
-    /// target (no focused element, own app, secure field, or the text right
-    /// before the cursor doesn't match `word` — e.g. a terminal, whose
-    /// visible content isn't a real AX value).
     /// Why `captureWordAnchor` returned nil. A value, not a string: it is
     /// recorded inside the event tap callback on every miss, and describing
     /// it is left to the log line, which is never built while logging is off.
@@ -108,6 +98,17 @@ final class TextFieldController {
     /// only at debug level; InputMonitor reads this right after the call so
     /// a lost correction's error line can name the reason at error level.
     private(set) var lastAnchorFailure: AnchorFailure?
+
+    /// Capture the position of the word immediately before the cursor, for
+    /// later use with `replaceAnchoredWord`. Capture early (right when the
+    /// boundary key is seen) rather than at correction time: `correctionDelay`
+    /// means correction happens ~50ms later, and if the user has since
+    /// started the next word without pausing, a cursor-relative lookup done
+    /// *then* would find the new word instead — silently failing to correct
+    /// the one this anchor is for. Returns nil if there's no AX-correctable
+    /// target (no focused element, own app, secure field, or the text right
+    /// before the cursor doesn't match `word` — e.g. a terminal, whose
+    /// visible content isn't a real AX value).
 
     func captureWordAnchor(matching word: String, variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
         // Split guards so the log names the reason — "no anchor" alone

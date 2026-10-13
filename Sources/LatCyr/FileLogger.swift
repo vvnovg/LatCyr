@@ -102,6 +102,9 @@ final class FileLogger {
         queue.async { [self] in
             closeHandle()
             failed = false
+            // A pending header would duplicate the one LogController writes
+            // right after off -> on.
+            headerPending = false
         }
     }
 
