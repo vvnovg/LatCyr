@@ -48,7 +48,7 @@ let detector: Decide = { typed, russianActive, variant in
 
 func row(_ label: String, _ variant: Variant, _ hits: Int, _ total: Int) {
     let percent = total == 0 ? 0 : 100 * Double(hits) / Double(total)
-    print(label.padding(toLength: 50, withPad: " ", startingAt: 0)
+    print(label.padding(toLength: 56, withPad: " ", startingAt: 0)
           + "\(variant)".padding(toLength: 7, withPad: " ", startingAt: 0)
           + String(format: "%6d / %6d  %6.2f%%", hits, total, percent))
 }
