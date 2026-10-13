@@ -36,7 +36,9 @@ final class BundledExceptionsTests: XCTestCase {
     }
 
     func testFileIsCorrectedFromRussianLayout() {
-        // The reported case: "ашду" scored 0.463 Russian, above the 0.4 threshold.
+        // History: under the old letter-frequency score "ашду" rated 0.463 Russian,
+        // above its 0.4 threshold; the bigram score catches it on its own now
+        // (see LanguageDetectorTests).
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ашду", currentLayoutIsRussian: true, exceptions: bundled, variant: .apple))
     }
 }

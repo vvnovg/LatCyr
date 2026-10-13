@@ -273,8 +273,9 @@ final class InputMonitor {
 
     /// Debug line for a word boundary. Only ever built inside Log.debug's
     /// autoclosure, so the score computations cost nothing unless debug
-    /// logging is on. Scores are the public per-string ones, without
-    /// isWrongLayout's punctuation filtering — close enough to diagnose.
+    /// logging is on. Scores are the raw per-string bigram model scores
+    /// (russianScore/englishScore), not the LLR that isWrongLayout decides on —
+    /// close enough to diagnose.
     private func boundaryDescription(_ char: Character, wrong: Bool) -> LogMessage {
         let word = currentWord.lowercased()
         let converted = currentLayoutIsRussian
