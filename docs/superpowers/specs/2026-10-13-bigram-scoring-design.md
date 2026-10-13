@@ -96,7 +96,7 @@ return llr > thresholds.threshold(forLength: original.count)
 - **Пороги по длине.** `public struct LLRThresholds { threeLetters, fourLetters, longer; func threshold(forLength:) }` и `public static let llrThresholds`. Длина — `word.count` набранного слова (та же единица, что у `minWordLength`): 3 → `threeLetters`, 4 → `fourLetters`, 5 и больше → `longer`. Значения выбираются по сетке замером (раздел 6), направления используют общие пороги.
 - **Удаляются:** `russianThreshold`, `englishThreshold`, `diffThreshold`, `runPenalty`, таблицы частот букв, множества гласных и согласных, приватный `score(...)`, `strippingPunctuation`.
 - **`russianScore` / `englishScore`** остаются публичными как обёртки над `BigramModel.averageLogProb`. Шкала меняется: теперь это средняя log-вероятность (отрицательное число), а не 0…1.
-- **`wrongLayoutLLR(word:currentLayoutIsRussian:variant:) -> Double?`** — публичная «оценочная половина» решения для инструмента замера и тестов (`nil`, если слово не прошло проверки длины и символов; исключения и домен не учитывает).
+- **`wrongLayoutLLR(word:currentLayoutIsRussian:variant:) -> Double?`** — публичная «оценочная половина» решения для инструмента замера и тестов (`nil`, если слово не прошло проверки длины и символов или в нём нет ни одной буквы; исключения и домен не учитывает).
 - **Без изменений:** `minWordLength` = 3, проактивные сигналы (`proactiveSwitchSignal`, `proactiveSingleCharSwitchSignal`), `looksLikeDomain` и `knownTLDs`, `isCarriableFunctionWord`, `ExceptionStore`. Ни одно из них не зависит от скоров.
 - **Комментарии и тесты со старыми числами** (0.468 для `youtube.com`, 0.424/0.323 для `amazon.de`, 0.439 для `yfl`, 0.4 в `testScores`, `testDomainNameOverridesScoreHeuristic`) переписываются под новую шкалу с сохранением смысла. Если пример перестаёт иллюстрировать мотивацию (например, `youtube.com` начинает ловиться и без `looksLikeDomain`), правило всё равно остаётся — домены латиницей безусловно, — а комментарий говорит, что правило теперь страховка.
 - **Тесты-предусловия механизмов** (`sdd`/`ыыд` для исключений, `h`c` для гарда вариантов): если новая модель меняет поведение на слове-примере, тест переводится на другое слово с тем же свойством. Тест — про механизм, а не про конкретное слово.
@@ -155,6 +155,7 @@ swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sou
   - «ашду», «ершы», «ащк», «цшер», «фку», «ерфе» исправляются **без исключений** (RU-раскладка);
   - русские слова с редкими парами не трогаются («ещё», «шею», «щука», «съезд», «объект», …);
   - частые русские слова с буквами на пунктуационных клавишах не трогаются («был», «быть», «была», «уже», «ещё», «еще», «тут», «лучше», «хочу», «ему», «буду», «друг», …);
+  - строки только из пунктуационных клавиш (`...`, ```` ``` ````, `'''`, `,,,`) не трогаются: у оригинала нет ни одной буквы, его оценка — пол вероятности, и любая конверсия выглядит бесконечно лучше; наборы замера состоят только из букв и этого не видят;
   - выбор порога по длине слова;
   - частые короткие английские токены не трогаются (EN-раскладка): `the`, `and`, `npm`, `git`, `ssh`, `sudo`, `grep`, `brew`. Все эти тесты идут с `exceptions: []`: провал решается порогом или параметрами генератора, а не добавлением слова в исключения.
 
@@ -173,32 +174,32 @@ D="scripts/eval-data/man-tokens.txt scripts/eval-data/ru-dict.txt .build/eval/ru
 ```
 
 ```
-A  man tokens typed in RU layout: caught                pc            3841 /        7301   52.61%
-A' real EN man words typed in RU layout: caught         pc            2982 /        5185   57.51%
-B  ru holdout typed in EN layout: caught                pc           19536 /       23689   82.47%
-B  ru holdout typed correctly: FALSE POSITIVE           pc             351 /       23689    1.48%
-C  en holdout typed in RU layout: caught                pc           14132 /       23223   60.85%
-C  en holdout typed correctly: FALSE POSITIVE           pc             224 /       23223    0.96%
-D  ru spell-checker dict typed correctly: FALSE POS     pc             976 /       53035    1.84%
-E  Latin bundled exceptions typed in RU: caught raw     pc              16 /         601    2.66%
-Y  ru words with ё typed correctly: FALSE POSITIVE      pc              33 /         802    4.11%
-Bw ru holdout typed in EN layout: caught, by tokens     pc        38302735 /    49214543   77.83%
-Bw ru holdout typed correctly: FALSE POS, by tokens     pc         1298902 /    49214543    2.64%
-Cw en holdout typed in RU layout: caught, by tokens     pc       135835697 /   236860368   57.35%
-Cw en holdout typed correctly: FALSE POS, by tokens     pc         1140796 /   236860368    0.48%
-A  man tokens typed in RU layout: caught                apple         3841 /        7301   52.61%
-A' real EN man words typed in RU layout: caught         apple         2982 /        5185   57.51%
-B  ru holdout typed in EN layout: caught                apple        19536 /       23689   82.47%
-B  ru holdout typed correctly: FALSE POSITIVE           apple          351 /       23689    1.48%
-C  en holdout typed in RU layout: caught                apple        14132 /       23223   60.85%
-C  en holdout typed correctly: FALSE POSITIVE           apple          224 /       23223    0.96%
-D  ru spell-checker dict typed correctly: FALSE POS     apple          976 /       53035    1.84%
-E  Latin bundled exceptions typed in RU: caught raw     apple           16 /         601    2.66%
-Y  ru words with ё typed correctly: FALSE POSITIVE      apple           33 /         802    4.11%
-Bw ru holdout typed in EN layout: caught, by tokens     apple     38302735 /    49214543   77.83%
-Bw ru holdout typed correctly: FALSE POS, by tokens     apple      1298902 /    49214543    2.64%
-Cw en holdout typed in RU layout: caught, by tokens     apple    135835697 /   236860368   57.35%
-Cw en holdout typed correctly: FALSE POS, by tokens     apple      1140796 /   236860368    0.48%
+A  man tokens typed in RU layout: caught                pc            6405 /        7301   87.73%
+A' real EN man words typed in RU layout: caught         pc            4870 /        5185   93.92%
+B  ru holdout typed in EN layout: caught                pc           21316 /       23689   89.98%
+B  ru holdout typed correctly: FALSE POSITIVE           pc              79 /       23689    0.33%
+C  en holdout typed in RU layout: caught                pc           22115 /       23223   95.23%
+C  en holdout typed correctly: FALSE POSITIVE           pc               8 /       23223    0.03%
+D  ru spell-checker dict typed correctly: FALSE POS     pc             351 /       53035    0.66%
+E  Latin bundled exceptions typed in RU: caught raw     pc             519 /         601   86.36%
+Y  ru words with ё typed correctly: FALSE POSITIVE      pc               1 /         802    0.12%
+Bw ru holdout typed in EN layout: caught, by tokens     pc        38845827 /    49214543   78.93%
+Bw ru holdout typed correctly: FALSE POS, by tokens     pc          164680 /    49214543    0.33%
+Cw en holdout typed in RU layout: caught, by tokens     pc       204738233 /   236860368   86.44%
+Cw en holdout typed correctly: FALSE POS, by tokens     pc           12611 /   236860368    0.01%
+A  man tokens typed in RU layout: caught                apple         6405 /        7301   87.73%
+A' real EN man words typed in RU layout: caught         apple         4870 /        5185   93.92%
+B  ru holdout typed in EN layout: caught                apple        21316 /       23689   89.98%
+B  ru holdout typed correctly: FALSE POSITIVE           apple           79 /       23689    0.33%
+C  en holdout typed in RU layout: caught                apple        22115 /       23223   95.23%
+C  en holdout typed correctly: FALSE POSITIVE           apple            8 /       23223    0.03%
+D  ru spell-checker dict typed correctly: FALSE POS     apple          351 /       53035    0.66%
+E  Latin bundled exceptions typed in RU: caught raw     apple          519 /         601   86.36%
+Y  ru words with ё typed correctly: FALSE POSITIVE      apple            1 /         802    0.12%
+Bw ru holdout typed in EN layout: caught, by tokens     apple     38845827 /    49214543   78.93%
+Bw ru holdout typed correctly: FALSE POS, by tokens     apple       164680 /    49214543    0.33%
+Cw en holdout typed in RU layout: caught, by tokens     apple    204738233 /   236860368   86.44%
+Cw en holdout typed correctly: FALSE POS, by tokens     apple        12611 /   236860368    0.01%
 ```
 
 ```
@@ -269,17 +270,19 @@ Cw en holdout typed correctly: FALSE POS, by tokens     apple        12611 /   2
 |---|---|---|
 | A — man-токены в RU-раскладке: поймано | 52.61 | 87.73 |
 | A' — настоящие английские слова man в RU: поймано | 57.51 | 93.92 |
-| B — ru holdout в EN-раскладке: поймано | 82.47 | 89.99 |
+| B — ru holdout в EN-раскладке: поймано | 82.47 | 89.98 |
 | B — ru holdout набран верно: ложные | 1.48 | 0.33 |
 | C — en holdout в RU-раскладке: поймано | 60.85 | 95.23 |
 | C — en holdout набран верно: ложные | 0.96 | 0.03 |
 | D — словарь проверки орфографии ru: ложные | 1.84 | 0.66 |
 | E — латинские записи exceptions.txt в RU: поймано без исключений | 2.66 | 86.36 |
 | Y — русские слова с «ё»: ложные | 4.11 | 0.12 |
-| Bw — B в EN-раскладке, по частоте: поймано | 77.83 | 78.94 |
+| Bw — B в EN-раскладке, по частоте: поймано | 77.83 | 78.93 |
 | Bw — B набран верно, по частоте: ложные | 2.64 | 0.33 |
 | Cw — C в RU-раскладке, по частоте: поймано | 57.35 | 86.44 |
 | Cw — C набран верно, по частоте: ложные | 0.48 | 0.01 |
+
+Строки B и Bw пересчитаны после исправления пунктуационных буферов (раздел 6.1): «эээ»/«ээээ» в EN-раскладке набираются как `'''`/`''''` и раньше засчитывались как пойманные только из-за этой ошибки.
 
 Все критерии пп. 1–3 раздела 6 выполнены (строка помечена `yes` в `curve.tsv`): доля пропущенных в A' — 6.08% против 42.49% (втрое меньше половины), в C — 4.77% против 39.15%.
 

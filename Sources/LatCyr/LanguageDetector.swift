@@ -145,6 +145,8 @@ public enum LanguageDetector {
         if looksLikeDomain(converted) { return true }
 
         return layoutLLR(original: lower, converted: converted, currentLayoutIsRussian: currentLayoutIsRussian)
+            // Length counts the word as typed, punctuation keys included
+            // (the same unit as minWordLength).
             > thresholds.threshold(forLength: lower.count)
     }
 
@@ -165,7 +167,11 @@ public enum LanguageDetector {
     }
 
     private static func isScorable(_ lower: String, variant: TextConverter.RussianKeyboardVariant) -> Bool {
+        // A buffer with no letter (a code fence, an ellipsis) scores the
+        // probability floor on the original side, so any conversion looks
+        // infinitely better; such buffers are never scorable.
         lower.count >= minWordLength
+            && lower.contains(where: { $0.isLetter })
             && lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) })
     }
 

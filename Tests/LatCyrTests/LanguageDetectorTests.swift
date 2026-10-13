@@ -177,9 +177,23 @@ final class LanguageDetectorTests: XCTestCase {
     // letters); the bigram model catches it on its own now (LLR 2.76). The
     // domain rule stays as an unconditional safeguard, like the exception
     // list: domains are always Latin.
+    // A buffer of punctuation keys alone has no letter for the current
+    // layout's model to score — its side sits at the probability floor and
+    // any conversion looks infinitely better. Code fences, ellipses and
+    // Python docstring quotes must never be "corrected" into «ёёё» or «ююю».
+    func testPunctuationOnlyBuffersNotTouched() {
+        for (word, variant) in [("...", TextConverter.RussianKeyboardVariant.pc), ("....", .pc), ("```", .pc), ("\\\\\\", .apple),
+                                ("'''", .pc), (",,,", .pc), (";;;", .pc), ("[[]]", .pc), ("[];", .pc), ("...", .apple)] {
+            XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                           "\(word) (\(variant)) wrongly corrected")
+            XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: word, currentLayoutIsRussian: false, variant: variant))
+        }
+    }
+
     func testDomainNameOverridesScoreHeuristic() {
         XCTAssertEqual(TextConverter.toLatin("нщгегиуюсщь", variant: .pc), "youtube.com")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertGreaterThan(LanguageDetector.wrongLayoutLLR(word: "нщгегиуюсщь", currentLayoutIsRussian: true, variant: .pc)!, LanguageDetector.llrThresholds.longer)
     }
 
     // Real Russian words whose conversion superficially resembles a domain.
