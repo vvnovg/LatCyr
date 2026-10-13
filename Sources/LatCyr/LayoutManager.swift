@@ -54,6 +54,15 @@ final class LayoutManager {
     /// Switch the keyboard layout to English.
     func switchToEnglish() { switchTo(layout: .english) }
 
+    /// IDs of every enabled input source, for the log header.
+    func enabledInputSourceIDs() -> [String] {
+        guard let cfArray = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else { return [] }
+        return (0..<CFArrayGetCount(cfArray)).compactMap { index in
+            guard let ptr = CFArrayGetValueAtIndex(cfArray, index) else { return nil }
+            return inputSourceID(unsafeBitCast(ptr, to: TISInputSource.self))
+        }
+    }
+
     /// Map a keycode + modifier state to the character it produces in the
     /// current layout. Returns nil for non-printable keys.
     func character(forKeyCode keyCode: CGKeyCode, flags: CGEventFlags) -> Character? {

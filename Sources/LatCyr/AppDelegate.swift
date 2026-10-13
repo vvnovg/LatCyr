@@ -1,8 +1,10 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let inputMonitor = InputMonitor()
-    private let permissionManager = PermissionManager()
+    // Not private: AppDelegate+Logging builds the log header from these.
+    let inputMonitor = InputMonitor()
+    let permissionManager = PermissionManager()
+    let logController = LogController()
     private let textFieldController = TextFieldController()
     private let clipboardReader = ClipboardReader()
 
@@ -10,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enabled = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logController.onCaptureExpired = { [weak self] in self?.rebuildMenu() }
+        logController.start(header: logHeader)
         setupStatusItem()
         if permissionManager.isFullyAuthorized {
             setEnabled(true)
@@ -21,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         inputMonitor.stop()
+        Log.info("app terminating")
+        logController.flush()
     }
 
     // MARK: - Menu
@@ -63,6 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         addHybridAppItem.target = self
         menu.addItem(addHybridAppItem)
+        menu.addItem(buildRevealExceptionsItem())
+
+        menu.addItem(.separator())
+
+        menu.addItem(buildLoggingMenuItem())
 
         menu.addItem(.separator())
 
@@ -147,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if inputMonitor.exceptionStore.add(word) {
+            Log.info("exception added: \(Sensitive(word))")
             showAlert(message: "Добавлено в исключения: \(word)")
         } else {
             showAlert(message: "Уже в списке исключений: \(word)")
@@ -168,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         inputMonitor.hybridAppStore.add(bundleID)
+        Log.info("hybrid app added: \(bundleID)")
         showAlert(message: "Добавлено как гибридное: \(name) (\(bundleID))")
     }
 
@@ -193,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func rebuildMenu() {
+    func rebuildMenu() {
         statusItem?.menu = buildMenu()
     }
 
