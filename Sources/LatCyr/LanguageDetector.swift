@@ -91,7 +91,7 @@ public enum LanguageDetector {
     /// Shortest first label accepted as a domain. "клюву" converts to "rk.de",
     /// a valid-looking domain with a 2-character name; real sites the user
     /// types by hand are longer. Costs nothing in practice — "t.me" is caught
-    /// by the score heuristic anyway (englishScore 0.69).
+    /// by the score anyway (LLR 5.10, well above its threshold).
     private static let minDomainLabelLength = 3
 
     /// Whether the conversion reads as a domain name. Domain names are always
