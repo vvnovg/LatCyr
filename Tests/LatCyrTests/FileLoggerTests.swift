@@ -68,6 +68,20 @@ final class FileLoggerTests: XCTestCase {
         XCTAssertNil(found["latcyr.4.log"])
     }
 
+    func testTotalCapHoldsOnWritesAfterLimitIsLowered() {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 500)
+        for _ in 0..<50 { logger.write(line9) } // fills all five files exactly
+        logger.setMaxTotalBytes(200)            // 40 per file now
+        for i in 0..<100 {
+            logger.write(line9)
+            logger.flush()
+            let found = files()
+            let total = found.values.reduce(0, +)
+            XCTAssertLessThanOrEqual(total, 200, "after write \(i): \(found)")
+            XCTAssertLessThanOrEqual(found.count, 5, "after write \(i): \(found)")
+        }
+    }
+
     func testOversizedLineGoesWholeIntoAFreshFile() throws {
         let logger = FileLogger(directory: dir, maxTotalBytes: 50) // 10 per file
         let long = String(repeating: "x", count: 30)

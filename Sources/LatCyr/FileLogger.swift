@@ -19,7 +19,9 @@ final class FileLogger {
     private var maxTotalBytes: Int
     /// Set when the file can't be opened or written. There is nowhere to
     /// report the logger's own failure, so it goes quiet until `close()`
-    /// (called on every level change) clears the latch and allows a retry.
+    /// clears the latch and allows a retry. LogController calls `close()`
+    /// only on transitions to/from `.off`, so a failure silences logging
+    /// until logging is turned off and back on.
     private var failed = false
 
     init(directory: URL = FileLogger.defaultDirectory, maxTotalBytes: Int) {
@@ -36,6 +38,9 @@ final class FileLogger {
             let perFile = LogRotation.perFileLimit(totalLimit: maxTotalBytes)
             if LogRotation.shouldRotate(currentSize: currentSize, incoming: data.count, perFileLimit: perFile) {
                 rotate()
+                // Files written under an older, larger limit may still be
+                // around; drop whatever no longer fits before new data lands.
+                enforceLimits()
                 guard openIfNeeded() else { return }
             }
             do {
@@ -103,6 +108,10 @@ final class FileLogger {
         handle = nil
     }
 
+    /// The one deliberate exception to the total cap: a single line longer
+    /// than the per-file limit is written whole into a fresh file
+    /// (`LogRotation.shouldRotate` never rotates an empty file), so that file
+    /// can exceed `perFile` until the next rotation.
     private func rotate() {
         closeHandle()
         let fileManager = FileManager.default
@@ -123,7 +132,9 @@ final class FileLogger {
         for index in 1..<LogRotation.fileCount where FileManager.default.fileExists(atPath: url(forIndex: index).path) {
             rotated[index] = fileSize(forIndex: index)
         }
-        let doomed = LogRotation.filesToDelete(currentSize: fileSize(forIndex: 0), rotated: rotated, totalLimit: maxTotalBytes)
+        // Reserve a full per-file budget for the current file: it will grow to
+        // that size, and the cap must hold then, not only at this moment.
+        let doomed = LogRotation.filesToDelete(currentSize: max(fileSize(forIndex: 0), perFile), rotated: rotated, totalLimit: maxTotalBytes)
         for index in doomed {
             try? FileManager.default.removeItem(at: url(forIndex: index))
         }
