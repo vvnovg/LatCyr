@@ -1,7 +1,7 @@
 # Биграммный скоринг раскладки — Дизайн-документ
 
 **Дата:** 2026-10-13
-**Статус:** утверждён (дизайн); пересмотрен 2026-10-14 по итогам первой попытки реализации (раздел 2.3); цифры «после» и итоговые пороги вписываются по завершении реализации (раздел 7)
+**Статус:** утверждён; пересмотрен 2026-10-14 (раздел 2.3); реализован, цифры в разделе 7
 
 ## 1. Цель
 
@@ -210,4 +210,130 @@ A	A'	B-caught	B-FP	C-caught	C-FP	D-FP	E	Y-FP	B-caught-w	B-FP-w	C-caught-w	C-FP-w
 
 ### 7.2 После
 
-_Заполняется в Task 4 плана реализации._
+**Выбранные пороги:** `t3 / t4 / t5` = **2.50 / 1.50 / 1.00** (`LanguageDetector.llrThresholds`).
+
+Это 14-я строка отсортированного списка допустимых троек (раздел 6, п. 5: меньше всего `B-FP-w`, при равенстве — больше `A'`). Строки 1–13 отпали в Step 6 на тестах приёмки и поведения пользователя (раздел 6, п. 4):
+
+| # | t3 / t4 / t5 | Упавшие тесты (кроме тестов-предусловий) |
+|---|---|---|
+| 1 | 1.75 / 1.50 / 1.50 | `testRussianWordsWithRarePairsNotTouched` («шею», LLR 1.79), `testPunctuationInOriginalOnlyStillDetected` (`j,]trn`, LLR 1.27) |
+| 2 | 1.75 / 1.75 / 1.25 | `testRussianWordsWithRarePairsNotTouched` («шею»), `testFrequentEnglishWordsCaughtWithoutExceptions` («ерфе», LLR 1.70), `testRussianTypedInEnglishLayout`, `testWordWithAmbiguousPunctuationLetter` |
+| 3 | 1.75 / 1.50 / 1.25 | `testRussianWordsWithRarePairsNotTouched` («шею») |
+| 4–7 | 2.75…2.00 / 1.25 / 1.25 | `testFrequentRussianWordsNotTouched` («буду») |
+| 8 | 1.75 / 1.25 / 1.25 | `testFrequentRussianWordsNotTouched` («буду»), `testRussianWordsWithRarePairsNotTouched` («шею») |
+| 9 | 1.50 / 1.50 / 1.50 | `testPunctuationInOriginalOnlyStillDetected`, `testRussianWordsWithRarePairsNotTouched` («шею») |
+| 10 | 1.50 / 1.50 / 1.25 | `testRussianWordsWithRarePairsNotTouched` («шею») |
+| 11 | 1.50 / 1.25 / 1.25 | `testFrequentRussianWordsNotTouched` («буду»), `testRussianWordsWithRarePairsNotTouched` («шею») |
+| 12 | 2.00 / 2.00 / 1.00 | `testFrequentEnglishWordsCaughtWithoutExceptions` («ерфе»), `testRussianTypedInEnglishLayout`, `testWordWithAmbiguousPunctuationLetter` |
+| 13 | 2.50 / 1.75 / 1.00 | то же, что в строке 12 |
+
+Отчёт (инструмент собран с текущим `LanguageDetector.swift`):
+
+```bash
+D="scripts/eval-data/man-tokens.txt scripts/eval-data/ru-dict.txt .build/eval/ru_holdout.txt .build/eval/en_holdout.txt Resources/exceptions.txt .build/frequencywords/ru_50k.txt .build/frequencywords/en_50k.txt"
+.build/eval/eval-detector report $D
+```
+
+```
+A  man tokens typed in RU layout: caught                pc            6405 /        7301   87.73%
+A' real EN man words typed in RU layout: caught         pc            4870 /        5185   93.92%
+B  ru holdout typed in EN layout: caught                pc           21318 /       23689   89.99%
+B  ru holdout typed correctly: FALSE POSITIVE           pc              79 /       23689    0.33%
+C  en holdout typed in RU layout: caught                pc           22115 /       23223   95.23%
+C  en holdout typed correctly: FALSE POSITIVE           pc               8 /       23223    0.03%
+D  ru spell-checker dict typed correctly: FALSE POS     pc             351 /       53035    0.66%
+E  Latin bundled exceptions typed in RU: caught raw     pc             519 /         601   86.36%
+Y  ru words with ё typed correctly: FALSE POSITIVE      pc               1 /         802    0.12%
+Bw ru holdout typed in EN layout: caught, by tokens     pc        38848499 /    49214543   78.94%
+Bw ru holdout typed correctly: FALSE POS, by tokens     pc          164680 /    49214543    0.33%
+Cw en holdout typed in RU layout: caught, by tokens     pc       204738233 /   236860368   86.44%
+Cw en holdout typed correctly: FALSE POS, by tokens     pc           12611 /   236860368    0.01%
+A  man tokens typed in RU layout: caught                apple         6405 /        7301   87.73%
+A' real EN man words typed in RU layout: caught         apple         4870 /        5185   93.92%
+B  ru holdout typed in EN layout: caught                apple        21318 /       23689   89.99%
+B  ru holdout typed correctly: FALSE POSITIVE           apple           79 /       23689    0.33%
+C  en holdout typed in RU layout: caught                apple        22115 /       23223   95.23%
+C  en holdout typed correctly: FALSE POSITIVE           apple            8 /       23223    0.03%
+D  ru spell-checker dict typed correctly: FALSE POS     apple          351 /       53035    0.66%
+E  Latin bundled exceptions typed in RU: caught raw     apple          519 /         601   86.36%
+Y  ru words with ё typed correctly: FALSE POSITIVE      apple            1 /         802    0.12%
+Bw ru holdout typed in EN layout: caught, by tokens     apple     38848499 /    49214543   78.94%
+Bw ru holdout typed correctly: FALSE POS, by tokens     apple       164680 /    49214543    0.33%
+Cw en holdout typed in RU layout: caught, by tokens     apple    204738233 /   236860368   86.44%
+Cw en holdout typed correctly: FALSE POS, by tokens     apple        12611 /   236860368    0.01%
+```
+
+Варианты `pc` и `apple` снова совпадают во всех строках. До/после по `pc` (в процентах; для `apple` — те же числа):
+
+| Метрика | До, % | После, % |
+|---|---|---|
+| A — man-токены в RU-раскладке: поймано | 52.61 | 87.73 |
+| A' — настоящие английские слова man в RU: поймано | 57.51 | 93.92 |
+| B — ru holdout в EN-раскладке: поймано | 82.47 | 89.99 |
+| B — ru holdout набран верно: ложные | 1.48 | 0.33 |
+| C — en holdout в RU-раскладке: поймано | 60.85 | 95.23 |
+| C — en holdout набран верно: ложные | 0.96 | 0.03 |
+| D — словарь проверки орфографии ru: ложные | 1.84 | 0.66 |
+| E — латинские записи exceptions.txt в RU: поймано без исключений | 2.66 | 86.36 |
+| Y — русские слова с «ё»: ложные | 4.11 | 0.12 |
+| Bw — B в EN-раскладке, по частоте: поймано | 77.83 | 78.94 |
+| Bw — B набран верно, по частоте: ложные | 2.64 | 0.33 |
+| Cw — C в RU-раскладке, по частоте: поймано | 57.35 | 86.44 |
+| Cw — C набран верно, по частоте: ложные | 0.48 | 0.01 |
+
+Все критерии пп. 1–3 раздела 6 выполнены (строка помечена `yes` в `curve.tsv`): доля пропущенных в A' — 6.08% против 42.49% (втрое меньше половины), в C — 4.77% против 39.15%.
+
+Первые 10 строк отсортированного списка допустимых троек (`.build/eval/curve.tsv`, отбор `admissible == yes`, сортировка по `B-FP-w` по возрастанию, затем по `A'` по убыванию); допустимых **98 из 159**:
+
+```
+t3	t4	t5	A	A'	B-caught	B-FP	C-caught	C-FP	D-FP	E	Y-FP	B-caught-w	B-FP-w	C-caught-w	C-FP-w	admissible
+1.75	1.50	1.50	85.5499	92.4590	86.0019	0.2533	93.2352	0.0388	0.3771	82.6955	0.2494	77.8556	0.1074	83.3316	0.0033	yes
+1.75	1.75	1.25	86.8511	93.4041	88.0451	0.2744	94.3892	0.0344	0.4676	84.5258	0.1247	79.1531	0.1305	85.6204	0.0049	yes
+1.75	1.50	1.25	87.3168	93.7705	88.3364	0.2955	94.7595	0.0431	0.4997	85.5241	0.2494	80.0396	0.1339	85.8826	0.0063	yes
+2.75	1.25	1.25	86.4265	93.0376	88.2519	0.2828	94.4236	0.0301	0.4997	83.8602	0.1247	78.0697	0.1681	82.1758	0.0052	yes
+2.50	1.25	1.25	86.6868	93.2690	88.3321	0.2871	94.5743	0.0344	0.5053	84.0266	0.1247	79.2247	0.1693	84.6001	0.0053	yes
+2.25	1.25	1.25	86.8785	93.4041	88.4377	0.3039	94.7380	0.0344	0.5242	84.3594	0.1247	79.3597	0.1746	84.6559	0.0053	yes
+2.00	1.25	1.25	87.3031	93.7705	88.5432	0.3335	94.9705	0.0388	0.5525	85.3577	0.1247	79.5654	0.1814	85.8496	0.0055	yes
+1.75	1.25	1.25	87.6044	94.0212	88.6952	0.3673	95.1514	0.0431	0.5751	85.6905	0.2494	82.0307	0.1956	86.4056	0.0063	yes
+1.50	1.50	1.50	86.0019	92.8833	86.0990	0.3124	93.4117	0.0517	0.4224	84.0266	0.2494	77.9548	0.2041	83.6129	0.0039	yes
+1.50	1.50	1.25	87.7688	94.1948	88.4335	0.3546	94.9361	0.0560	0.5449	86.8552	0.2494	80.1388	0.2306	86.1640	0.0070	yes
+```
+
+**E:** из 601 латинской записи `exceptions.txt` без исключений ловится 519 (86.36%, было 16). Чистка списка — отдельное решение, в эту задачу не входит.
+
+20 самых частых ложных срабатываний на русских словах (ru holdout, набрано верно; число — частота в FrequencyWords ru_50k), для сведения:
+
+```
+51653 будут
+31756 также
+11478 слышу
+5387 цру
+5103 зубы
+4945 службы
+4539 любую
+4322 штук
+4141 штуку
+3327 службу
+2928 судьбу
+2685 судьбы
+2652 кухню
+2536 эффект
+1754 шутку
+1530 съешь
+1356 дружбы
+1278 башку
+1049 субъект
+1017 услышу
+```
+
+Слова, убранные из тестов как «ложное срабатывание и до, и после»: нет (`testShortEnglishTokensNotTouched` проходит целиком).
+
+Замены в тестах-предусловиях (механизм тот же, сменилось только слово):
+- `testExceptionWordNeverConverted`: `sdd` → `kfc` (LLR 2.74 — ложное срабатывание сырой биграммной оценки; `sdd` теперь не исправляется, LLR −3.35);
+- `testExceptionWordAlwaysCorrected`: `ыыд` (ssl) → `гыи` (usb, LLR 0.89; `ыыд` теперь ловится сам, LLR 6.42);
+- `testCyrillicExceptionWordSymmetric`: `ффф` → `щщщ` (LLR 7.62; `ффф` — 1.69, ниже трёхбуквенного порога); `dep` → «вуз» оставлен (LLR −1.09);
+- `testRussianVariantGatesAmbiguousLetterGuard`: ``h`c`` / `h\c` → ``gj`k`` / `gj\k` («пошёл», LLR 4.93; ``h`c`` — 2.00, ниже трёхбуквенного порога).
+
+`testDomainNameOverridesScoreHeuristic`: модель ловит все проверенные домены сама (`нщгегиуюсщь` youtube.com — LLR 2.76, минимальный из семи — `пшергиюсщь` github.com, 1.54, при пороге 1.00), поэтому в тесте остались только `toLatin` и `isWrongLayout`; правило `looksLikeDomain` остаётся безусловной страховкой.
+
+Параметры генератора — без изменений; таблицы не перегенерировались.
