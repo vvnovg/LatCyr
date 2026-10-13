@@ -59,4 +59,24 @@ final class BigramModelTests: XCTestCase {
         XCTAssertTrue(BigramModel.floorLogProb.isFinite)
         XCTAssertEqual(BigramModel.floorLogProb, log(1e-7), accuracy: 1e-12)
     }
+
+    // Sanity checks on the generated tables, not on the detector: a broken
+    // generator (transposed rows, wrong alphabet order, conditional instead
+    // of joint probabilities) shows up here first. "ашду" is "file" typed
+    // under the Russian layout; "ghbdtn" is "привет" typed under the English.
+    func testRealTablesSeparateWordsFromLayoutGibberish() {
+        XCTAssertGreaterThan(BigramModel.russian.averageLogProb("привет"), BigramModel.russian.averageLogProb("ашду") + 2)
+        XCTAssertGreaterThan(BigramModel.english.averageLogProb("hello"), BigramModel.english.averageLogProb("ghbdtn") + 1)
+    }
+
+    // Every score stays at or above the floor (the literals are rounded to
+    // four decimals, hence the tolerance).
+    func testRealTablesStayAboveFloor() {
+        for word in ["привет", "ашду", "щщщщ", "ъъъ"] {
+            XCTAssertGreaterThanOrEqual(BigramModel.russian.averageLogProb(word), BigramModel.floorLogProb - 1e-3)
+        }
+        for word in ["hello", "qqqq", "xzxz"] {
+            XCTAssertGreaterThanOrEqual(BigramModel.english.averageLogProb(word), BigramModel.floorLogProb - 1e-3)
+        }
+    }
 }
