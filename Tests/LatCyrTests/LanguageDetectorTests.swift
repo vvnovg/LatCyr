@@ -172,11 +172,6 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "ghbdtn,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
-    // "нщгегиуюсщь" is "youtube.com". Under the old letter-frequency score
-    // it read as plausible Russian (н, е, и, у, с are all high-frequency
-    // letters); the bigram model catches it on its own now (LLR 2.76). The
-    // domain rule stays as an unconditional safeguard, like the exception
-    // list: domains are always Latin.
     // A buffer of punctuation keys alone has no letter for the current
     // layout's model to score — its side sits at the probability floor and
     // any conversion looks infinitely better. Code fences, ellipses and
@@ -190,6 +185,11 @@ final class LanguageDetectorTests: XCTestCase {
         }
     }
 
+    // "нщгегиуюсщь" is "youtube.com". Under the old letter-frequency score
+    // it read as plausible Russian (н, е, и, у, с are all high-frequency
+    // letters); the bigram model catches it on its own now (LLR 2.76). The
+    // domain rule stays as an unconditional safeguard, like the exception
+    // list: domains are always Latin.
     func testDomainNameOverridesScoreHeuristic() {
         XCTAssertEqual(TextConverter.toLatin("нщгегиуюсщь", variant: .pc), "youtube.com")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
