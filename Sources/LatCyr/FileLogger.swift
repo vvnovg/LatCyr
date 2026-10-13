@@ -23,6 +23,11 @@ final class FileLogger {
     /// only on transitions to/from `.off`, so a failure silences logging
     /// until logging is turned off and back on.
     private var failed = false
+    /// Formatted header, see `setHeader`.
+    private var header = Data()
+    /// Set by `rotate()`: the next write starts a fresh current file and
+    /// puts the header in front of its own line.
+    private var headerPending = false
 
     init(directory: URL = FileLogger.defaultDirectory, maxTotalBytes: Int) {
         self.directory = directory
@@ -43,6 +48,22 @@ final class FileLogger {
                 enforceLimits()
                 guard openIfNeeded() else { return }
             }
+            if headerPending {
+                headerPending = false
+                // Header bytes count toward the file like any other: if the
+                // header and this line together don't fit the per-file
+                // limit, the header is skipped rather than break the cap.
+                if currentSize == 0, !header.isEmpty, header.count + data.count <= perFile {
+                    do {
+                        try handle?.write(contentsOf: header)
+                        currentSize += header.count
+                    } catch {
+                        closeHandle()
+                        failed = true
+                        return
+                    }
+                }
+            }
             do {
                 try handle?.write(contentsOf: data)
                 currentSize += data.count
@@ -50,6 +71,18 @@ final class FileLogger {
                 closeHandle()
                 failed = true
             }
+        }
+    }
+
+    /// Lines (already formatted) written at the top of every file a
+    /// rotation starts. The header LogController writes at launch and on
+    /// off -> on lands only in the file current at that moment; without this,
+    /// after a few rotations no file left on disk would say which version,
+    /// permissions or input sources produced it.
+    func setHeader(_ lines: [String]) {
+        let data = Data(lines.map { $0 + "\n" }.joined().utf8)
+        queue.async { [self] in
+            header = data
         }
     }
 
@@ -111,7 +144,10 @@ final class FileLogger {
     /// The one deliberate exception to the total cap: a single line longer
     /// than the per-file limit is written whole into a fresh file
     /// (`LogRotation.shouldRotate` never rotates an empty file), so that file
-    /// can exceed `perFile` until the next rotation.
+    /// can exceed `perFile` until the next rotation. If it exceeds
+    /// `maxTotal - perFile`, the next rotation may delete it outright:
+    /// `enforceLimits` reserves a full `perFile` for the new current file and
+    /// drops rotated files, oldest first, until the rest fits.
     private func rotate() {
         closeHandle()
         let fileManager = FileManager.default
@@ -123,6 +159,7 @@ final class FileLogger {
             }
         }
         currentSize = 0
+        headerPending = true
     }
 
     private func enforceLimits() {

@@ -90,11 +90,23 @@ enum Log {
     /// when the user only logs errors.
     static func header(_ lines: [String]) {
         guard level != .off, let sink else { return }
+        for line in formatHeader(lines) {
+            sink(line)
+        }
+    }
+
+    /// The same header, formatted but not written, for FileLogger to put at
+    /// the top of each file a rotation starts. Marked so a reader can tell
+    /// it from a real logging session start; the timestamp stays the one of
+    /// the moment the header was captured.
+    static func repeatedHeaderLines(_ lines: [String]) -> [String] {
+        formatHeader(lines.map { "(header repeated after rotation) \($0)" })
+    }
+
+    private static func formatHeader(_ lines: [String]) -> [String] {
         let date = Date()
         let app = frontmostAppID()
-        for line in lines {
-            sink(LogLine.format(date: date, level: .info, app: app, message: line))
-        }
+        return lines.map { LogLine.format(date: date, level: .info, app: app, message: $0) }
     }
 
     private static func emit(_ messageLevel: LogLevel, _ message: () -> LogMessage) {

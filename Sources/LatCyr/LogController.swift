@@ -30,7 +30,7 @@ final class LogController {
         Log.level = settings.level
         fileLogger.setMaxTotalBytes(settings.maxTotalBytes)
         if Log.level != .off {
-            Log.header(header())
+            writeHeader(header())
         }
     }
 
@@ -50,7 +50,7 @@ final class LogController {
             // close() also clears FileLogger's failure latch, so turning
             // logging back on retries a file that previously failed to open.
             fileLogger.close()
-            Log.header(header())
+            writeHeader(header())
         }
         // Logged under the new level: records a switch *up* from below info.
         if old < .info {
@@ -82,6 +82,16 @@ final class LogController {
         guard on != Log.captureText else { return }
         Log.captureText = on
         Log.info(on ? "typed text capture ON for \(Int(Self.captureDuration / 60)) min" : "typed text capture OFF")
+    }
+
+    /// Writes the header now and hands it to FileLogger to repeat at the top
+    /// of every file a later rotation starts. Handed over first: if the
+    /// header's own lines trigger a rotation, the new file gets the fresh
+    /// header (once repeated, once as written) rather than a stale one from
+    /// an earlier session.
+    private func writeHeader(_ lines: [String]) {
+        fileLogger.setHeader(Log.repeatedHeaderLines(lines))
+        Log.header(lines)
     }
 
     /// Lets queued lines reach the disk before the app exits.

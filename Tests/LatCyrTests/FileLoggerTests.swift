@@ -94,6 +94,49 @@ final class FileLoggerTests: XCTestCase {
         XCTAssertEqual(current, "y\n")
     }
 
+    func testRotatedCurrentFileBeginsWithHeader() throws {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 500) // 100 per file
+        logger.setHeader(["H1", "H2"])                              // 6 bytes
+        for _ in 0..<15 { logger.write(line9) }                     // forces a rotation
+        logger.flush()
+        let current = try String(contentsOf: dir.appendingPathComponent("latcyr.log"), encoding: .utf8)
+        XCTAssertTrue(current.hasPrefix("H1\nH2\n" + line9 + "\n"), current)
+        XCTAssertNotNil(files()["latcyr.1.log"])
+    }
+
+    func testHeaderIsWrittenAfterRotationCausedByLoweringLimit() throws {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 500)
+        logger.setHeader(["H"])
+        for _ in 0..<5 { logger.write(line9) }   // 50 bytes, no rotation
+        logger.setMaxTotalBytes(200)             // 40 per file: current is rotated away
+        logger.write("a")
+        logger.flush()
+        let current = try String(contentsOf: dir.appendingPathComponent("latcyr.log"), encoding: .utf8)
+        XCTAssertEqual(current, "H\na\n")
+    }
+
+    func testTotalCapHoldsWithRepeatedHeader() {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 500) // 100 per file
+        logger.setHeader(["header-line-1", "header-line-2"])       // 28 bytes
+        for i in 0..<200 {
+            logger.write(line9)
+            logger.flush()
+            let found = files()
+            XCTAssertLessThanOrEqual(found.values.reduce(0, +), 500, "after write \(i): \(found)")
+            XCTAssertTrue(found.values.allSatisfy { $0 <= 100 }, "after write \(i): \(found)")
+        }
+    }
+
+    func testHeaderSkippedWhenItWouldNotFitWithTheLine() throws {
+        let logger = FileLogger(directory: dir, maxTotalBytes: 50) // 10 per file
+        logger.setHeader(["HEADER"])                               // 7 bytes
+        logger.write(line9)
+        logger.write(line9)                                        // rotates; 7 + 10 > 10
+        logger.flush()
+        let current = try String(contentsOf: dir.appendingPathComponent("latcyr.log"), encoding: .utf8)
+        XCTAssertEqual(current, line9 + "\n")
+    }
+
     func testReopensAfterClose() throws {
         let logger = FileLogger(directory: dir, maxTotalBytes: 1000)
         logger.write("a")

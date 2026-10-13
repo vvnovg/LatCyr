@@ -97,6 +97,15 @@ final class LogTests: XCTestCase {
         XCTAssertTrue(lines[1].hasSuffix(" INFO [test.app] second"))
     }
 
+    func testRepeatedHeaderLinesAreMarkedAndNotWritten() {
+        Log.level = .error
+        let repeated = Log.repeatedHeaderLines(["first", "second"])
+        XCTAssertTrue(lines.isEmpty)
+        XCTAssertEqual(repeated.count, 2)
+        XCTAssertTrue(repeated[0].hasSuffix(" INFO [test.app] (header repeated after rotation) first"), repeated[0])
+        XCTAssertTrue(repeated[1].hasSuffix(" INFO [test.app] (header repeated after rotation) second"), repeated[1])
+    }
+
     func testNoSinkWritesNothingAndDoesNotEvaluate() {
         Log.sink = nil
         var evaluated = false
