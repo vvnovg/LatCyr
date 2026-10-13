@@ -71,6 +71,34 @@ final class TextFieldController {
         let range: Range<Int>
     }
 
+    /// Why `captureWordAnchor` returned nil. A value, not a string: it is
+    /// recorded inside the event tap callback on every miss, and describing
+    /// it is left to the log line, which is never built while logging is off.
+    /// Words are carried as `Sensitive`, and `description` prints them only
+    /// redacted (length and alphabet) — it is used in plain interpolation.
+    enum AnchorFailure: CustomStringConvertible {
+        case noFocusedElement, ownApp, secureField, notEditableText, cursorOutsideText, noWordBeforeCursor
+        case textMismatch(actual: Sensitive, typed: Sensitive)
+
+        var description: String {
+            switch self {
+            case .noFocusedElement: return "no focused element"
+            case .ownApp: return "own app"
+            case .secureField: return "secure field"
+            case .notEditableText: return "not editable text"
+            case .cursorOutsideText: return "cursor outside text"
+            case .noWordBeforeCursor: return "no word before cursor"
+            case let .textMismatch(actual, typed): return "text before cursor \(actual) != typed \(typed)"
+            }
+        }
+    }
+
+    /// Why the most recent `captureWordAnchor` call returned nil (nil after
+    /// a successful capture). The debug lines inside it say the same, but
+    /// only at debug level; InputMonitor reads this right after the call so
+    /// a lost correction's error line can name the reason at error level.
+    private(set) var lastAnchorFailure: AnchorFailure?
+
     /// Capture the position of the word immediately before the cursor, for
     /// later use with `replaceAnchoredWord`. Capture early (right when the
     /// boundary key is seen) rather than at correction time: `correctionDelay`
@@ -81,25 +109,56 @@ final class TextFieldController {
     /// target (no focused element, own app, secure field, or the text right
     /// before the cursor doesn't match `word` — e.g. a terminal, whose
     /// visible content isn't a real AX value).
+
     func captureWordAnchor(matching word: String, variant: TextConverter.RussianKeyboardVariant) -> WordAnchor? {
-        guard let element = focusedTextElement(),
-              !isOwnApp(element),
-              !isSecure(element),
-              isEditableText(element),
-              let text = text(of: element),
-              let range = selectedRange(of: element) else { return nil }
+        // Split guards so the log names the reason — "no anchor" alone
+        // can't tell a terminal from a stale cursor from a secure field.
+        lastAnchorFailure = nil
+        guard let element = focusedTextElement() else {
+            lastAnchorFailure = .noFocusedElement
+            Log.debug("anchor: no focused element")
+            return nil
+        }
+        guard !isOwnApp(element) else {
+            lastAnchorFailure = .ownApp
+            Log.debug("anchor: own app")
+            return nil
+        }
+        guard !isSecure(element) else {
+            lastAnchorFailure = .secureField
+            Log.debug("anchor: secure field")
+            return nil
+        }
+        // Same check as isEditableText(element), read once instead of twice.
+        guard let text = text(of: element), let range = selectedRange(of: element) else {
+            lastAnchorFailure = .notEditableText
+            Log.debug("anchor: not editable text (role \(role(of: element) ?? "-"), subrole \(subrole(of: element) ?? "-"))")
+            return nil
+        }
         let cursor = range.location + range.length
         let utf16 = Array(text.utf16)
-        guard cursor >= 0, cursor <= utf16.count else { return nil }
+        guard cursor >= 0, cursor <= utf16.count else {
+            lastAnchorFailure = .cursorOutsideText
+            Log.debug("anchor: cursor \(cursor) outside text length \(utf16.count)")
+            return nil
+        }
 
         var end = cursor
         while end > 0 && isBoundary(utf16[end - 1], variant: variant) { end -= 1 }
         var start = end
         while start > 0 && !isBoundary(utf16[start - 1], variant: variant) { start -= 1 }
-        guard start < end else { return nil }
+        guard start < end else {
+            lastAnchorFailure = .noWordBeforeCursor
+            Log.debug("anchor: no word before cursor (role \(role(of: element) ?? "-"))")
+            return nil
+        }
 
         let actualWord = String(utf16CodeUnits: Array(utf16[start..<end]), count: end - start)
-        guard actualWord.lowercased() == word.lowercased() else { return nil }
+        guard actualWord.lowercased() == word.lowercased() else {
+            lastAnchorFailure = .textMismatch(actual: Sensitive(actualWord), typed: Sensitive(word))
+            Log.debug("anchor: text before cursor \(Sensitive(actualWord)) != typed \(Sensitive(word)) (role \(role(of: element) ?? "-"))")
+            return nil
+        }
 
         return WordAnchor(element: element, range: start..<end)
     }
@@ -111,12 +170,21 @@ final class TextFieldController {
     /// typed more text after the anchored word in the meantime.
     func replaceAnchoredWord(_ anchor: WordAnchor, word: String, with replacement: String) -> Bool {
         guard let text = text(of: anchor.element),
-              let liveRange = selectedRange(of: anchor.element) else { return false }
+              let liveRange = selectedRange(of: anchor.element) else {
+            Log.debug("replace: anchored element no longer readable")
+            return false
+        }
         let utf16 = Array(text.utf16)
-        guard anchor.range.upperBound <= utf16.count else { return false }
+        guard anchor.range.upperBound <= utf16.count else {
+            Log.debug("replace: anchor range \(anchor.range) beyond text length \(utf16.count)")
+            return false
+        }
 
         let actualWord = String(utf16CodeUnits: Array(utf16[anchor.range]), count: anchor.range.count)
-        guard actualWord.lowercased() == word.lowercased() else { return false }
+        guard actualWord.lowercased() == word.lowercased() else {
+            Log.debug("replace: anchored text changed: \(Sensitive(actualWord)) != \(Sensitive(word))")
+            return false
+        }
 
         let cursor = liveRange.location + liveRange.length
         return replace(range: anchor.range, with: replacement, in: anchor.element, utf16: utf16, cursor: cursor)
@@ -162,7 +230,10 @@ final class TextFieldController {
         guard prefixEnd <= utf16.count else { return false }
 
         let actualPrefix = String(utf16CodeUnits: Array(utf16[start..<prefixEnd]), count: prefix.utf16.count)
-        guard actualPrefix.lowercased() == prefix.lowercased() else { return false }
+        guard actualPrefix.lowercased() == prefix.lowercased() else {
+            Log.debug("replacePrefix: text \(Sensitive(actualPrefix)) != typed \(Sensitive(prefix))")
+            return false
+        }
 
         var spanStart = start
         if !carried.isEmpty {
@@ -183,20 +254,31 @@ final class TextFieldController {
         let newText = String(utf16CodeUnits: Array(utf16[0..<range.lowerBound]), count: range.lowerBound)
             + replacement
             + String(utf16CodeUnits: Array(utf16[range.upperBound..<utf16.count]), count: utf16.count - range.upperBound)
-        guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef) == .success else { return false }
+        let writeResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef)
+        guard writeResult == .success else {
+            Log.debug("replace: AX value write failed (AXError \(writeResult.rawValue), role \(role(of: element) ?? "-"))")
+            return false
+        }
         // Some apps (terminals, some Electron/web-based editors) report
         // .success for a value write without actually applying it — their
         // AX bridge accepts the call but the underlying view keeps its own
         // state. Read the value back to confirm the write really landed;
         // otherwise the caller would switch the layout on top of text that
         // was never corrected.
-        guard text(of: element) == newText else { return false }
+        guard text(of: element) == newText else {
+            Log.debug("replace: AX write reported success but was not applied (role \(role(of: element) ?? "-"))")
+            return false
+        }
         // Preserve the cursor's position relative to the text: shift it by the
         // length change of the replaced range. This keeps the cursor after any
         // trailing whitespace (e.g. the space that triggered the correction),
         // so the next word is not inserted before it.
         let newCursor = cursor + (replacement.utf16.count - range.count)
-        return setCursor(newCursor, in: element)
+        guard setCursor(newCursor, in: element) else {
+            Log.debug("replace: text replaced but cursor move failed")
+            return false
+        }
+        return true
     }
 
     private func text(of element: AXUIElement) -> String? {

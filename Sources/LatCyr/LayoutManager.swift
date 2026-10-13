@@ -54,6 +54,15 @@ final class LayoutManager {
     /// Switch the keyboard layout to English.
     func switchToEnglish() { switchTo(layout: .english) }
 
+    /// IDs of every enabled input source, for the log header.
+    func enabledInputSourceIDs() -> [String] {
+        guard let cfArray = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else { return [] }
+        return (0..<CFArrayGetCount(cfArray)).compactMap { index in
+            guard let ptr = CFArrayGetValueAtIndex(cfArray, index) else { return nil }
+            return inputSourceID(unsafeBitCast(ptr, to: TISInputSource.self))
+        }
+    }
+
     /// Map a keycode + modifier state to the character it produces in the
     /// current layout. Returns nil for non-printable keys.
     func character(forKeyCode keyCode: CGKeyCode, flags: CGEventFlags) -> Character? {
@@ -115,16 +124,23 @@ final class LayoutManager {
     }
 
     private func switchTo(layout target: Layout) {
-        guard let cfArray = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else { return }
+        guard let cfArray = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else {
+            Log.error("layout switch to \(target): could not list input sources")
+            return
+        }
         let count = CFArrayGetCount(cfArray)
         for i in 0..<count {
             guard let ptr = CFArrayGetValueAtIndex(cfArray, i) else { continue }
             let source = unsafeBitCast(ptr, to: TISInputSource.self)
             if layout(of: source) == target {
-                TISSelectInputSource(source)
+                let status = TISSelectInputSource(source)
+                if status != noErr {
+                    Log.error("layout switch to \(inputSourceID(source) ?? "?") failed: OSStatus \(status)")
+                }
                 return
             }
         }
+        Log.error("layout switch to \(target): no enabled input source matches")
     }
 
     private func flagsToModifierState(_ flags: CGEventFlags) -> UInt32 {

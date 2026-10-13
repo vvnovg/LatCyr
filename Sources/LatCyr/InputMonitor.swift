@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 import CoreGraphics
 import Foundation
 
@@ -76,7 +77,10 @@ final class InputMonitor {
                 return Unmanaged.passUnretained(event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else { return }
+        ) else {
+            Log.error("event tap creation failed (Input Monitoring permission?)")
+            return
+        }
         eventTap = tap
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         if let runLoopSource {
@@ -84,6 +88,7 @@ final class InputMonitor {
         }
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true
+        Log.info("monitor started")
 
         // The word buffer isn't bound to the app it was typed in — a mouse-
         // driven focus change fires no keystroke. Reset it on every app
@@ -94,9 +99,11 @@ final class InputMonitor {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.currentWord = ""
-            self?.currentWordIsFragment = false
-            self?.carry.reset()
+            guard let self else { return }
+            Log.debug("buffer reset: app activated (word \(Sensitive(self.currentWord)), carry \(self.carry.count))")
+            self.currentWord = ""
+            self.currentWordIsFragment = false
+            self.carry.reset()
         }
     }
 
@@ -118,6 +125,7 @@ final class InputMonitor {
         currentWord = ""
         currentWordIsFragment = false
         carry.reset()
+        Log.info("monitor stopped")
     }
 
     // MARK: - Event handling
@@ -132,6 +140,7 @@ final class InputMonitor {
         // silently dead until relaunch — the menu bar item still reads
         // "включено" while nothing is being monitored.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            Log.error("event tap disabled by system (\(type == .tapDisabledByTimeout ? "timeout" : "user input")), re-enabling")
             if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
             return false
         }
@@ -152,6 +161,7 @@ final class InputMonitor {
             // Cmd+V rewrite. In a terminal there is no anchor to catch a
             // stale chain, so the keystroke fallback would delete the
             // chain's length blind.
+            if !carry.isEmpty { Log.debug("carry reset: shortcut (carry \(carry.count))") }
             carry.reset()
             return false
         }
@@ -162,6 +172,7 @@ final class InputMonitor {
                 // Deleting past the start of the word eats the separator or
                 // the carried word itself, so the chain no longer describes
                 // the text in front of the cursor.
+                if !carry.isEmpty { Log.debug("carry reset: backspace past word start (carry \(carry.count))") }
                 carry.reset()
             } else {
                 currentWord.removeLast()
@@ -170,6 +181,9 @@ final class InputMonitor {
         }
 
         guard let char = layoutManager.character(forKeyCode: keyCode, flags: flags) else {
+            if !currentWord.isEmpty || !carry.isEmpty {
+                Log.debug("buffer reset: no character for keyCode \(keyCode) (word \(Sensitive(currentWord)), carry \(carry.count))")
+            }
             currentWord = ""
             // An arrow key moves the cursor away from the chain; anything
             // else here is just as opaque. Either way the chain can no
@@ -195,13 +209,21 @@ final class InputMonitor {
                 scheduleProactiveCheck()
             }
         } else if isWordBoundary(char) {
+            let wrong = !currentWord.isEmpty && LanguageDetector.isWrongLayout(
+                word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
+                exceptions: exceptionStore.words, variant: currentRussianVariant
+            )
+            if !currentWord.isEmpty {
+                Log.debug(boundaryDescription(char, wrong: wrong))
+            }
             if currentWord.isEmpty {
                 // A boundary with nothing buffered is a second separator
                 // (double space, ", "). A chain is only ever carried across
                 // exactly one space, so this one is spent.
+                if !carry.isEmpty { Log.debug("carry reset: second separator (carry \(carry.count))") }
                 carry.reset()
                 scheduleLeadingCharCheck(char)
-            } else if LanguageDetector.isWrongLayout(word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian, exceptions: exceptionStore.words, variant: currentRussianVariant) {
+            } else if wrong {
                 let carried = carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
                 carry.reset()
                 if char.isNewline || char == "\t" {
@@ -239,11 +261,27 @@ final class InputMonitor {
             // branch above ran.
             currentWordIsFragment = false
         } else {
+            if !currentWord.isEmpty || !carry.isEmpty {
+                Log.debug("buffer reset: non-letter \(char.debugDescription) (word \(Sensitive(currentWord)), carry \(carry.count))")
+            }
             currentWord = ""
             currentWordIsFragment = false
             carry.reset()
         }
         return false
+    }
+
+    /// Debug line for a word boundary. Only ever built inside Log.debug's
+    /// autoclosure, so the score computations cost nothing unless debug
+    /// logging is on. Scores are the public per-string ones, without
+    /// isWrongLayout's punctuation filtering — close enough to diagnose.
+    private func boundaryDescription(_ char: Character, wrong: Bool) -> LogMessage {
+        let word = currentWord.lowercased()
+        let converted = currentLayoutIsRussian
+            ? TextConverter.toLatin(word, variant: currentRussianVariant)
+            : TextConverter.toCyrillic(word, variant: currentRussianVariant)
+        func score(_ value: Double) -> String { String(format: "%.3f", value) }
+        return "boundary \(char.debugDescription) word=\(Sensitive(currentWord)) conv=\(Sensitive(converted)) ru=\(currentLayoutIsRussian) variant=\(currentRussianVariant) wrong=\(wrong) ruScore=\(score(LanguageDetector.russianScore(word))) enScore=\(score(LanguageDetector.englishScore(word))) convRuScore=\(score(LanguageDetector.russianScore(converted))) convEnScore=\(score(LanguageDetector.englishScore(converted))) carry=\(carry.count) fragment=\(currentWordIsFragment)"
     }
 
     // MARK: - Correction
@@ -273,11 +311,17 @@ final class InputMonitor {
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        // Read right away: the next captureWordAnchor call overwrites it.
+        let anchorFailure = textFieldController.lastAnchorFailure
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
+        // Secure Event Input held by another app hides keystrokes from the
+        // tap entirely; logging it here lets support spot it next to a miss.
+        Log.debug("retroactive scheduled: anchor=\(captured != nil) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
                 word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
+                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+                anchorFailure: anchorFailure
             )
         }
     }
@@ -331,12 +375,18 @@ final class InputMonitor {
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
     ) -> Bool {
         let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        let anchorFailure = textFieldController.lastAnchorFailure
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor
+            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+            anchorFailure: anchorFailure
         ) else { return false }
-        return keystrokeSimulator.replay(keyCode: keyCode)
+        guard keystrokeSimulator.replay(keyCode: keyCode) else {
+            Log.error("could not re-post swallowed key \(keyCode); key delivered unswallowed")
+            return false
+        }
+        return true
     }
 
     private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) {
@@ -347,7 +397,10 @@ final class InputMonitor {
         ) else { return }
         // Fast-typing guard: if the buffer has grown past the captured word,
         // bail and let the retroactive path handle the full word.
-        guard currentWord == word else { return }
+        guard currentWord == word else {
+            Log.debug("proactive: signal for \(Sensitive(word)) dropped, buffer moved on")
+            return
+        }
         // Verify the chain before editing rather than retrying afterwards: a
         // failed edit may already have injected keystrokes in a terminal, and
         // a second attempt would inject them twice. captureWordAnchor works
@@ -385,6 +438,7 @@ final class InputMonitor {
         // ambiguous key — see CLAUDE.md) — only the layout needs fixing, so
         // there's no text to replace and no AX/KeystrokeSimulator involved.
         switchLayout(wasRussian: wasRussian)
+        Log.info("leading \(char.debugDescription) in terminal: layout switched")
         // Drop whatever's accumulated since — it started under the layout
         // we just left, and letting it mix with post-switch typing would
         // feed a stale currentLayoutIsRussian into a later correction.
@@ -401,7 +455,8 @@ final class InputMonitor {
     private func applyCorrection(
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
         boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
-        wordAnchor: TextFieldController.WordAnchor? = nil
+        wordAnchor: TextFieldController.WordAnchor? = nil,
+        anchorFailure: TextFieldController.AnchorFailure? = nil
     ) -> Bool {
         // One span, one conversion: TextConverter leaves unmapped characters
         // alone and the space key is in neither table, so joining the chain
@@ -410,6 +465,10 @@ final class InputMonitor {
         let converted = wasRussian ? TextConverter.toLatin(span, variant: variant) : TextConverter.toCyrillic(span, variant: variant)
 
         var axReplaced: Bool
+        // Why axReplaced is false, for the not-applied line: "AX failed"
+        // alone can't tell a missing target from a rejected write. A closure
+        // so nothing is formatted unless that line is actually logged.
+        var axFailure: () -> String = { "AX replace rejected or not applied" }
         if replacePrefix {
             // Proactive path: replacePrefix operates on the word still
             // being typed (no boundary yet). It's re-derived from the live
@@ -423,6 +482,7 @@ final class InputMonitor {
                 axReplaced = textFieldController.replacePrefix(word, carrying: carried, with: converted, in: element, variant: variant)
             } else {
                 axReplaced = false
+                axFailure = { "no focused editable element" }
             }
         } else if let anchor {
             // Retroactive path: anchor was captured synchronously when the
@@ -431,6 +491,7 @@ final class InputMonitor {
             axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted)
         } else {
             axReplaced = false
+            axFailure = { "no anchor captured (\(anchorFailure.map { "\($0)" } ?? "unknown"))" }
         }
 
         // The widened-span replacement can fail for a reason that has
@@ -449,9 +510,18 @@ final class InputMonitor {
         if !replacePrefix, !axReplaced, !carried.isEmpty, let wordAnchor {
             let convertedWord = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
             axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: convertedWord)
+            if axReplaced {
+                // Only the word was replaced; the chain stays as typed.
+                Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(convertedWord)) carried=0")
+                switchLayout(wasRussian: wasRussian)
+                return true
+            }
+            axFailure = { "AX replace rejected or not applied (widened span and word-only retry)" }
         }
 
+        let path = replacePrefix ? "proactive" : "retroactive"
         if axReplaced {
+            Log.info("corrected via ax (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count)")
             switchLayout(wasRussian: wasRussian)
             return true
         }
@@ -461,7 +531,10 @@ final class InputMonitor {
         // view). Fall back to simulated keystrokes, restricted to known
         // terminals: without an AX element we can't check isSecure/isOwnApp,
         // so blindly injecting into arbitrary apps would be unsafe.
-        guard keystrokeSimulator.usesKeystrokeFallback else { return false }
+        guard keystrokeSimulator.usesKeystrokeFallback else {
+            logNotApplied("\(axFailure()); this app has no keystroke fallback", proactive: replacePrefix, span: span)
+            return false
+        }
 
         let deleteCount: Int
         let typed: String
@@ -477,6 +550,7 @@ final class InputMonitor {
                 // echoes nothing (or rewrites the whole line) — either way
                 // it isn't the one extra on-screen character this arithmetic
                 // assumes. Injecting keystrokes in either case is unsafe.
+                logNotApplied("keystroke fallback skipped: boundary is Enter/Tab", proactive: replacePrefix, span: span)
                 return false
             }
             deleteCount = span.count + 1
@@ -485,9 +559,23 @@ final class InputMonitor {
             deleteCount = span.count
             typed = converted
         }
-        guard keystrokeSimulator.correct(deleting: deleteCount, typing: typed) else { return false }
+        guard keystrokeSimulator.correct(deleting: deleteCount, typing: typed) else {
+            logNotApplied("keystroke fallback failed", proactive: replacePrefix, span: span)
+            return false
+        }
+        Log.info("corrected via keystroke (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count) deleted=\(deleteCount)")
         switchLayout(wasRussian: wasRussian)
         return true
+    }
+
+    /// A retroactive miss is a lost correction (error); a proactive miss
+    /// still has the retroactive check at the word boundary behind it (debug).
+    private func logNotApplied(_ reason: @autoclosure () -> String, proactive: Bool, span: String) {
+        if proactive {
+            Log.debug("proactive correction not applied: \(reason()) (span \(Sensitive(span)))")
+        } else {
+            Log.error("correction not applied: \(reason()) (span \(Sensitive(span)))")
+        }
     }
 
     private func switchLayout(wasRussian: Bool) {

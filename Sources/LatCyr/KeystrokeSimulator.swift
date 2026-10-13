@@ -63,7 +63,10 @@ final class KeystrokeSimulator {
     /// successfully posted, not that the target app visibly applied them.
     @discardableResult
     func correct(deleting count: Int, typing replacement: String) -> Bool {
-        guard count >= 0, count <= Self.maxDeleteCount else { return false }
+        guard count >= 0, count <= Self.maxDeleteCount else {
+            Log.error("keystroke fallback refused: delete count \(count) outside 0...\(Self.maxDeleteCount)")
+            return false
+        }
         for _ in 0..<count {
             guard postKeyPress(keyCode: Self.backspaceKeyCode) else { return false }
         }
@@ -87,6 +90,7 @@ final class KeystrokeSimulator {
         // failure on keyUp never leaves an unpaired keyDown posted.
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            Log.error("could not construct key event for keyCode \(keyCode)")
             return false
         }
         down.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
@@ -106,6 +110,7 @@ final class KeystrokeSimulator {
         // for Terminal.app/iTerm2, which read the Unicode string.
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
+            Log.error("could not construct unicode string event")
             return false
         }
         down.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)

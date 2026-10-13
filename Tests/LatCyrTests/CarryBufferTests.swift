@@ -53,4 +53,16 @@ final class CarryBufferTests: XCTestCase {
         XCTAssertEqual(buffer.carried(layoutIsRussian: false, variant: .pc), ["d", "yf", "gj"])
         XCTAssertEqual(CarryBuffer.maxWords, 3)
     }
+
+    func testCountAndIsEmpty() {
+        var buffer = CarryBuffer()
+        XCTAssertTrue(buffer.isEmpty)
+        XCTAssertEqual(buffer.count, 0)
+        buffer.append("d", layoutIsRussian: false, variant: .pc)
+        buffer.append("b", layoutIsRussian: false, variant: .pc)
+        XCTAssertFalse(buffer.isEmpty)
+        XCTAssertEqual(buffer.count, 2)
+        buffer.reset()
+        XCTAssertTrue(buffer.isEmpty)
+    }
 }

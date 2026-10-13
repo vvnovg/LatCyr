@@ -43,6 +43,10 @@ struct CarryBuffer {
         words.removeAll()
     }
 
+    /// For diagnostics (logging) only — decisions use `carried(...)`.
+    var count: Int { words.count }
+    var isEmpty: Bool { words.isEmpty }
+
     /// The chain in typing order, or nothing when it belongs to a different
     /// layout or Russian variant than the correction about to be applied.
     func carried(
