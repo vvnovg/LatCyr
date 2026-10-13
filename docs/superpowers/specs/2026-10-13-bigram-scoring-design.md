@@ -164,31 +164,46 @@ swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sou
 
 ### 7.1 Базовая линия (текущая эвристика, до изменения)
 
-_Пересоздаётся в Task 4 расширенным инструментом (частотные строки, набор Y); старые строки не меняются._
-
-Коммит детектора: e3406d0. Команда:
+Коммит детектора: 5039b5b. Инструмент — редакция с частотными строками и набором Y (Task 4). Команды:
 
 ```bash
-.build/eval/baseline report scripts/eval-data/man-tokens.txt scripts/eval-data/ru-dict.txt .build/eval/ru_holdout.txt .build/eval/en_holdout.txt Resources/exceptions.txt
+D="scripts/eval-data/man-tokens.txt scripts/eval-data/ru-dict.txt .build/eval/ru_holdout.txt .build/eval/en_holdout.txt Resources/exceptions.txt .build/frequencywords/ru_50k.txt .build/frequencywords/en_50k.txt"
+.build/eval/baseline report $D
+.build/eval/baseline metrics $D
 ```
 
 ```
-A  man tokens typed in RU layout: caught                pc       3841 /   7301   52.61%
-A' real EN man words typed in RU layout: caught         pc       2982 /   5185   57.51%
-B  ru holdout typed in EN layout: caught                pc      19536 /  23689   82.47%
-B  ru holdout typed correctly: FALSE POSITIVE           pc        351 /  23689    1.48%
-C  en holdout typed in RU layout: caught                pc      14132 /  23223   60.85%
-C  en holdout typed correctly: FALSE POSITIVE           pc        224 /  23223    0.96%
-D  ru spell-checker dict typed correctly: FALSE POS     pc        976 /  53035    1.84%
-E  Latin bundled exceptions typed in RU: caught raw     pc         16 /    601    2.66%
-A  man tokens typed in RU layout: caught                apple    3841 /   7301   52.61%
-A' real EN man words typed in RU layout: caught         apple    2982 /   5185   57.51%
-B  ru holdout typed in EN layout: caught                apple   19536 /  23689   82.47%
-B  ru holdout typed correctly: FALSE POSITIVE           apple     351 /  23689    1.48%
-C  en holdout typed in RU layout: caught                apple   14132 /  23223   60.85%
-C  en holdout typed correctly: FALSE POSITIVE           apple     224 /  23223    0.96%
-D  ru spell-checker dict typed correctly: FALSE POS     apple     976 /  53035    1.84%
-E  Latin bundled exceptions typed in RU: caught raw     apple      16 /    601    2.66%
+A  man tokens typed in RU layout: caught                pc            3841 /        7301   52.61%
+A' real EN man words typed in RU layout: caught         pc            2982 /        5185   57.51%
+B  ru holdout typed in EN layout: caught                pc           19536 /       23689   82.47%
+B  ru holdout typed correctly: FALSE POSITIVE           pc             351 /       23689    1.48%
+C  en holdout typed in RU layout: caught                pc           14132 /       23223   60.85%
+C  en holdout typed correctly: FALSE POSITIVE           pc             224 /       23223    0.96%
+D  ru spell-checker dict typed correctly: FALSE POS     pc             976 /       53035    1.84%
+E  Latin bundled exceptions typed in RU: caught raw     pc              16 /         601    2.66%
+Y  ru words with ё typed correctly: FALSE POSITIVE      pc              33 /         802    4.11%
+Bw ru holdout typed in EN layout: caught, by tokens     pc        38302735 /    49214543   77.83%
+Bw ru holdout typed correctly: FALSE POS, by tokens     pc         1298902 /    49214543    2.64%
+Cw en holdout typed in RU layout: caught, by tokens     pc       135835697 /   236860368   57.35%
+Cw en holdout typed correctly: FALSE POS, by tokens     pc         1140796 /   236860368    0.48%
+A  man tokens typed in RU layout: caught                apple         3841 /        7301   52.61%
+A' real EN man words typed in RU layout: caught         apple         2982 /        5185   57.51%
+B  ru holdout typed in EN layout: caught                apple        19536 /       23689   82.47%
+B  ru holdout typed correctly: FALSE POSITIVE           apple          351 /       23689    1.48%
+C  en holdout typed in RU layout: caught                apple        14132 /       23223   60.85%
+C  en holdout typed correctly: FALSE POSITIVE           apple          224 /       23223    0.96%
+D  ru spell-checker dict typed correctly: FALSE POS     apple          976 /       53035    1.84%
+E  Latin bundled exceptions typed in RU: caught raw     apple           16 /         601    2.66%
+Y  ru words with ё typed correctly: FALSE POSITIVE      apple           33 /         802    4.11%
+Bw ru holdout typed in EN layout: caught, by tokens     apple     38302735 /    49214543   77.83%
+Bw ru holdout typed correctly: FALSE POS, by tokens     apple      1298902 /    49214543    2.64%
+Cw en holdout typed in RU layout: caught, by tokens     apple    135835697 /   236860368   57.35%
+Cw en holdout typed correctly: FALSE POS, by tokens     apple      1140796 /   236860368    0.48%
+```
+
+```
+A	A'	B-caught	B-FP	C-caught	C-FP	D-FP	E	Y-FP	B-caught-w	B-FP-w	C-caught-w	C-FP-w
+52.6092	57.5121	82.4687	1.4817	60.8535	0.9646	1.8403	2.6622	4.1147	77.8281	2.6393	57.3484	0.4816
 ```
 
 Варианты `pc` и `apple` совпадают во всех строках: наборы состоят только из букв, а варианты различаются лишь пунктуационными клавишами. Наборы A' и D зависят от словарей проверки орфографии macOS, проверочные половины пересоздаёт генератор — замер воспроизводим на машине с теми же данными.
