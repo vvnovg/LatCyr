@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// Logging submenu, Finder shortcuts and the log header. A separate file
 /// to keep AppDelegate's own menu code readable.
@@ -15,6 +16,9 @@ extension AppDelegate {
             "macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "log: level=\(logController.level.tag) maxTotal=\(logController.maxTotalBytes / LogSettings.megabyte)MB",
             "permissions: accessibility=\(permissionManager.hasAccessibility) inputMonitoring=\(permissionManager.hasInputMonitoring)",
+            // While another app holds Secure Event Input (a password field,
+            // some terminals' "Secure Keyboard Entry"), the tap sees no keys.
+            "secure event input: \(IsSecureEventInputEnabled())",
             "input sources: \(LayoutManager().enabledInputSourceIDs().joined(separator: ", "))",
             "hybrid apps: \(inputMonitor.hybridAppStore.bundleIDs.sorted().joined(separator: ", "))",
             "exceptions: \(inputMonitor.exceptionStore.words.count) words",
