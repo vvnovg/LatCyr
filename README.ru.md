@@ -10,9 +10,9 @@
 
 ## Скачать
 
-**[LatCyr.zip — последняя тестовая сборка](https://github.com/vvnovg/LatCyr/releases/latest)**
+**[LatCyr.zip — последний релиз](https://github.com/vvnovg/LatCyr/releases/latest)**
 
-Не релиз, версии нет — сборки помечаются коммитом, с которого собраны.
+Релизы нумеруются (`v0.1.0`, …); что изменилось — в [CHANGELOG.md](CHANGELOG.md). Инструкции по установке и разрешениям — в описании релиза.
 
 ### Установить
 

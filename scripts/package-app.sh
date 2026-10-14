@@ -6,6 +6,10 @@
 # Usage: ./scripts/package-app.sh
 # Output: dist/LatCyr.app
 #
+# Version: CFBundleShortVersionString comes from the VERSION file,
+# CFBundleVersion (the build number) from the commit count — it only grows,
+# and two builds of different commits never share one.
+#
 # Note: re-running this re-signs the bundle, which changes its code hash and
 # drops any TCC permissions already granted. Grant permissions to the final
 # bundle and do not re-package unless you re-grant.
@@ -14,6 +18,8 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="LatCyr"
 DIST="dist/${APP_NAME}.app"
+VERSION="$(tr -d '[:space:]' < VERSION)"
+BUILD="$(git rev-list --count HEAD)"
 
 swift build -c release
 
@@ -24,7 +30,7 @@ mkdir -p "$DIST/Contents/Resources"
 cp ".build/release/${APP_NAME}" "$DIST/Contents/MacOS/${APP_NAME}"
 cp "Resources/exceptions.txt" "$DIST/Contents/Resources/exceptions.txt"
 
-cat > "$DIST/Contents/Info.plist" <<'PLIST'
+cat > "$DIST/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -40,9 +46,9 @@ cat > "$DIST/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${BUILD}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
@@ -54,4 +60,4 @@ cat > "$DIST/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --deep --sign - "$DIST"
-echo "Packaged: $DIST"
+echo "Packaged: $DIST ($VERSION, build $BUILD)"

@@ -9,10 +9,11 @@ macOS menu bar app that auto-detects text typed in the wrong keyboard layout
 
 ## Download
 
-**[LatCyr.zip — latest test build](https://github.com/vvnovg/LatCyr/releases/latest)**
+**[LatCyr.zip — latest release](https://github.com/vvnovg/LatCyr/releases/latest)**
 
-Not a versioned release — builds are tagged by the commit they were built
-from. Installation and permission instructions are in the release notes.
+Releases are numbered (`v0.1.0`, …); what changed is in
+[CHANGELOG.md](CHANGELOG.md). Installation and permission instructions are in
+the release notes.
 
 ## Build
 

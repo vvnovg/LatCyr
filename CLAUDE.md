@@ -15,6 +15,7 @@ swift test --filter TextConverterTests   # один тестовый класс
 swift test --filter LanguageDetectorTests/testRussianTypedInEnglishLayout  # один тест
 swift run LatCyr                     # запуск из терминала (см. про разрешения ниже)
 ./scripts/package-app.sh             # release-сборка + упаковка в dist/LatCyr.app (ad-hoc подпись)
+./scripts/release.sh                 # выпуск версии из VERSION: тесты, упаковка, тег v<версия>, GitHub-релиз с секцией CHANGELOG
 open dist/LatCyr.app                 # запуск собранного .app
 # замер детектора (подробно — docs/superpowers/specs/2026-10-13-bigram-scoring-design.md, §5)
 swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sources/LatCyr/TextConverter.swift Sources/LatCyr/BigramModel.swift Sources/LatCyr/BigramTables.swift scripts/eval-detector/main.swift
@@ -76,5 +77,6 @@ swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sou
 ## Заметки по процессу
 
 - Коммиты — conventional style (`feat:`, `fix:`, `docs:`).
+- Релизы нумерованные (semver, с `0.1.0`): версия — в `VERSION`, номер сборки — число коммитов (`package-app.sh` пишет оба в `Info.plist`). Выпуск: поднять `VERSION`, добавить секцию в `CHANGELOG.md`, закоммитить и запушить `main`, запустить `scripts/release.sh` (он сам проверяет чистоту дерева, пуш, отсутствие тега и наличие секции). Старые тестовые сборки — теги `test-<коммит>`.
 - Дизайн-документ и планы лежат в `docs/superpowers/`; рабочие артефакты SDD — в `.superpowers/sdd/`.
 - `.gitignore` исключает `.build/` и `dist/` — собранные артефакты не коммитятся.

@@ -102,6 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        // Disabled, informational: the version a user quotes when reporting
+        // a problem. `swift run` has no Info.plist, hence the fallback.
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = info?["CFBundleVersion"] as? String
+        menu.addItem(NSMenuItem(title: "LatCyr \(version)" + (build.map { " (сборка \($0))" } ?? ""), action: nil, keyEquivalent: ""))
+
         let quitItem = NSMenuItem(title: "Выход", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quitItem)
 
