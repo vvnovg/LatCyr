@@ -31,16 +31,37 @@ enum SecureInputHolder {
         return pid(fromConsoleUsers: users)
     }
 
-    /// "pid 123 (com.example.app)" for the log — a bundle ID or process
-    /// name, never anything the user typed.
+    /// "pid 123 (com.example.app) — <hint>" for the log: a bundle ID or
+    /// process name, never anything the user typed, plus what to do about it.
     static func describeCurrent() -> String {
         guard let pid = currentPID() else { return "holder unknown" }
+        let name = processName(pid)
+        let exists = name != nil || kill(pid, 0) == 0 || errno != ESRCH
+        let label = name.map { "pid \(pid) (\($0))" } ?? "pid \(pid)"
+        return "\(label) — \(hint(holderName: name, exists: exists))"
+    }
+
+    /// Pure: what the user should do, by who holds it. Learned the hard way:
+    /// a system password prompt left hidden behind other windows showed up
+    /// as "loginwindow" and looked like a stuck lock screen.
+    static func hint(holderName name: String?, exists: Bool) -> String {
+        guard exists else {
+            return "process no longer exists, stale secure input: log out and back in to reset"
+        }
+        let systemPrompts = ["loginwindow", "com.apple.loginwindow", "SecurityAgent", "com.apple.SecurityAgent"]
+        if let name, systemPrompts.contains(name) {
+            return "likely an open system password prompt, possibly hidden behind other windows: "
+                + "press F3 (Mission Control) to find it, then close it or enter the password"
+        }
+        return "likely a focused password field in that app: close it or quit the app; "
+            + "in Terminal/iTerm turn off Secure Keyboard Entry; press F3 (Mission Control) to find hidden windows"
+    }
+
+    private static func processName(_ pid: Int32) -> String? {
         if let app = NSRunningApplication(processIdentifier: pid) {
-            let name = app.bundleIdentifier ?? app.localizedName ?? "?"
-            return "pid \(pid) (\(name))"
+            return app.bundleIdentifier ?? app.localizedName
         }
         var buffer = [CChar](repeating: 0, count: 256)
-        let length = proc_name(pid, &buffer, UInt32(buffer.count))
-        return length > 0 ? "pid \(pid) (\(String(cString: buffer)))" : "pid \(pid)"
+        return proc_name(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
     }
 }

@@ -56,4 +56,22 @@ final class SecureInputHolderTests: XCTestCase {
         XCTAssertNil(SecureInputHolder.pid(fromConsoleUsers: [[SecureInputHolder.onConsoleKey: NSNumber(value: true)]]))
         XCTAssertNil(SecureInputHolder.pid(fromConsoleUsers: []))
     }
+
+    func testSystemPromptHolderPointsAtHiddenPasswordWindow() {
+        for name in ["loginwindow", "com.apple.loginwindow", "SecurityAgent", "com.apple.SecurityAgent"] {
+            let hint = SecureInputHolder.hint(holderName: name, exists: true)
+            XCTAssertTrue(hint.contains("password prompt"), name)
+            XCTAssertTrue(hint.contains("Mission Control"), name)
+        }
+    }
+
+    func testAppHolderPointsAtPasswordFieldAndSecureKeyboardEntry() {
+        let hint = SecureInputHolder.hint(holderName: "com.google.Chrome", exists: true)
+        XCTAssertTrue(hint.contains("password field"))
+        XCTAssertTrue(hint.contains("Secure Keyboard Entry"))
+    }
+
+    func testExitedHolderIsReportedAsStale() {
+        XCTAssertTrue(SecureInputHolder.hint(holderName: nil, exists: false).contains("log out"))
+    }
 }
