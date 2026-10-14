@@ -96,6 +96,7 @@ final class InputMonitor {
         let secureInput = IsSecureEventInputEnabled()
         Log.info("monitor started (secure event input: \(secureInput)\(secureInput ? ", held by \(SecureInputHolder.describeCurrent())" : ""))")
         startDiagnostics(secureInput: secureInput)
+        enableAccessibilityIfHybrid(NSWorkspace.shared.frontmostApplication)
 
         // The word buffer isn't bound to the app it was typed in — a mouse-
         // driven focus change fires no keystroke. Reset it on every app
@@ -105,8 +106,9 @@ final class InputMonitor {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             guard let self else { return }
+            self.enableAccessibilityIfHybrid(notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
             Log.debug("buffer reset: app activated (word \(Sensitive(self.currentWord)), carry \(self.carry.count))")
             self.currentWord = ""
             self.currentWordIsFragment = false
@@ -325,12 +327,14 @@ final class InputMonitor {
     /// fragment: the tail of a token already on screen (after "/" or a
     /// proactive fix) is not a command of its own.
     private func isTerminalCommand() -> Bool {
+        // Pure check first: isTerminalFocused may cost an AX read, and this
+        // runs inside the event tap callback.
         !currentWordIsFragment
-            && keystrokeSimulator.isTerminalFrontmost
             && LanguageDetector.isTerminalCommand(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
             )
+            && isTerminalFocused
     }
 
     /// Debug line for a word boundary. Only ever built inside Log.debug's
@@ -373,9 +377,7 @@ final class InputMonitor {
         // to correct it (see WordAnchor's doc comment). nil is fine here:
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
-        let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
-        // Read right away: the next captureWordAnchor call overwrites it.
-        let anchorFailure = textFieldController.lastAnchorFailure
+        let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         // Secure Event Input held by another app hides keystrokes from the
         // tap entirely; logging it here lets support spot it next to a miss.
@@ -387,6 +389,42 @@ final class InputMonitor {
                 anchorFailure: anchorFailure
             )
         }
+    }
+
+    /// captureWordAnchor, except in hybrid apps, which never get an AX
+    /// attempt: AXManualAccessibility (enabled there for terminal-pane
+    /// detection) makes their fields look AX-editable, but writes to them
+    /// report success without applying — registering the app as hybrid is
+    /// the user saying so. They go straight to the keystroke fallback,
+    /// exactly as before the tree was enabled.
+    private func captureAnchor(
+        matching word: String, variant: TextConverter.RussianKeyboardVariant
+    ) -> (anchor: TextFieldController.WordAnchor?, failure: TextFieldController.AnchorFailure?) {
+        if keystrokeSimulator.isHybridFrontmost { return (nil, .hybridApp) }
+        let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
+        // Read right away: the next captureWordAnchor call overwrites it.
+        return (anchor, textFieldController.lastAnchorFailure)
+    }
+
+    /// Terminal-only behaviour (leading "/", short commands) applies here:
+    /// a known terminal, or the xterm.js pane of a hybrid app (Claude's
+    /// terminal, VS Code's). The AX read only happens for hybrid apps, and
+    /// callers ask only after a cheap text check already matched.
+    private var isTerminalFocused: Bool {
+        keystrokeSimulator.isTerminalFrontmost
+            || (keystrokeSimulator.isHybridFrontmost && textFieldController.isFocusedTerminalEmulator())
+    }
+
+    /// Hybrid apps get AXManualAccessibility on activation, so the terminal
+    /// pane check works from the first keystroke — Electron builds the tree
+    /// asynchronously, and enabling it lazily would miss the first command
+    /// after every app launch. Only hybrid apps: the tree costs the app
+    /// memory and CPU, and the user registered these.
+    private func enableAccessibilityIfHybrid(_ app: NSRunningApplication?) {
+        guard let app, let id = app.bundleIdentifier, hybridAppStore.contains(id),
+              !KeystrokeSimulator.terminalBundleIDs.contains(id) else { return }
+        let result = textFieldController.enableManualAccessibility(pid: app.processIdentifier)
+        Log.debug("AXManualAccessibility for \(id): AXError \(result.rawValue)")
     }
 
     /// Check the carried chain against the live text and either widen the
@@ -437,8 +475,7 @@ final class InputMonitor {
         word: String, carried: [String], wasRussian: Bool,
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
     ) -> Bool {
-        let captured = textFieldController.captureWordAnchor(matching: word, variant: variant)
-        let anchorFailure = textFieldController.lastAnchorFailure
+        let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
@@ -476,7 +513,7 @@ final class InputMonitor {
         // work; resolveCarry is called only for its text-match verification.
         let carried = pending.isEmpty
             ? []
-            : resolveCarry(pending, anchor: textFieldController.captureWordAnchor(matching: word, variant: variant), variant: variant).carried
+            : resolveCarry(pending, anchor: captureAnchor(matching: word, variant: variant).anchor, variant: variant).carried
         if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
             currentWord = ""
             // Whatever gets typed next is not a fresh token: the word on
@@ -490,13 +527,14 @@ final class InputMonitor {
     }
 
     private func performLeadingCharCheck(char: Character, wasRussian: Bool) {
-        // Scope: terminal-only. Outside a terminal there's no strong reason
-        // to treat a bare "/" as "the user is about to type a path" — this
-        // reuses the same allowlist as the AX-replacement fallback.
-        guard keystrokeSimulator.isTerminalFrontmost else { return }
+        // Scope: terminal-only (isTerminalFocused — a known terminal or a
+        // hybrid app's xterm.js pane). Outside a terminal there's no strong
+        // reason to treat a bare "/" as "the user is about to type a path".
+        // The text check goes first: isTerminalFocused may cost an AX read.
         guard LanguageDetector.proactiveSingleCharSwitchSignal(
             first: char, currentLayoutIsRussian: wasRussian
         ) else { return }
+        guard isTerminalFocused else { return }
         // The character itself is already correct on screen (this isn't an
         // ambiguous key — see CLAUDE.md) — only the layout needs fixing, so
         // there's no text to replace and no AX/KeystrokeSimulator involved.
@@ -538,7 +576,10 @@ final class InputMonitor {
             // cursor at fire time, same as always — the caller already
             // guards `currentWord == word` before scheduling this, so a
             // fast-typing mismatch bails before we get here.
-            if let element = textFieldController.focusedTextElement(),
+            if keystrokeSimulator.isHybridFrontmost {
+                axReplaced = false
+                axFailure = { "hybrid app, AX skipped" }
+            } else if let element = textFieldController.focusedTextElement(),
                !textFieldController.isOwnApp(element),
                !textFieldController.isSecure(element),
                textFieldController.isEditableText(element) {

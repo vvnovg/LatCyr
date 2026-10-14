@@ -54,6 +54,14 @@ final class KeystrokeSimulator {
         return Self.terminalBundleIDs.contains(id)
     }
 
+    /// A user-registered hybrid app (not a known terminal) is frontmost.
+    /// Corrections there skip AX entirely — registering the app is the
+    /// user saying AX doesn't work in it.
+    var isHybridFrontmost: Bool {
+        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+        return !Self.terminalBundleIDs.contains(id) && hybridAppStore.contains(id)
+    }
+
     /// Delete `count` characters immediately before the cursor, then type
     /// `replacement`, via tagged synthetic keyboard events. Returns `false`
     /// if `count` is out of range or any event fails to *construct*, so the

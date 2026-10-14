@@ -78,6 +78,9 @@ final class TextFieldController {
     /// redacted (length and alphabet) — it is used in plain interpolation.
     enum AnchorFailure: CustomStringConvertible {
         case noFocusedElement, ownApp, secureField, notEditableText, cursorOutsideText, noWordBeforeCursor
+        /// Not tried at all: hybrid apps go straight to the keystroke
+        /// fallback (InputMonitor.captureAnchor).
+        case hybridApp
         case textMismatch(actual: Sensitive, typed: Sensitive)
 
         var description: String {
@@ -88,6 +91,7 @@ final class TextFieldController {
             case .notEditableText: return "not editable text"
             case .cursorOutsideText: return "cursor outside text"
             case .noWordBeforeCursor: return "no word before cursor"
+            case .hybridApp: return "hybrid app, AX skipped"
             case let .textMismatch(actual, typed): return "text before cursor \(actual) != typed \(typed)"
             }
         }
@@ -298,6 +302,39 @@ final class TextFieldController {
         var range = CFRange(location: 0, length: 0)
         AXValueGetValue(axValue, .cfRange, &range)
         return range
+    }
+
+    // MARK: - Terminal emulators inside Electron apps
+
+    /// The DOM class xterm.js gives its hidden input element. xterm.js is
+    /// the terminal behind VS Code, Cursor, Codex, Hyper, Tabby and the
+    /// Claude desktop app's terminal pane, so this one class tells a
+    /// terminal pane from the rest of such an app (a chat box, an editor).
+    static let xtermInputClass = "xterm-helper-textarea"
+
+    /// Pure: whether a focused element's DOM class list marks it as an
+    /// xterm.js terminal input.
+    static func isTerminalEmulatorInput(domClasses: [String]) -> Bool {
+        domClasses.contains(xtermInputClass)
+    }
+
+    /// Whether the focused element is an xterm.js terminal input. Needs the
+    /// app's accessibility tree, which Electron only builds once someone
+    /// sets AXManualAccessibility — see enableManualAccessibility.
+    func isFocusedTerminalEmulator() -> Bool {
+        guard let element = focusedTextElement() else { return false }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXDOMClassList" as CFString, &value) == .success,
+              let classes = value as? [String] else { return false }
+        return Self.isTerminalEmulatorInput(domClasses: classes)
+    }
+
+    /// Ask an Electron (Chromium) app to build its accessibility tree. Off
+    /// by default there: without it the focused element can't be read at
+    /// all. Non-Electron apps reject the attribute, which is harmless.
+    @discardableResult
+    func enableManualAccessibility(pid: pid_t) -> AXError {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
     }
 
     private func role(of element: AXUIElement) -> String? {
