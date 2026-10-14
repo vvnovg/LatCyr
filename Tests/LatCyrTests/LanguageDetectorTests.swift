@@ -352,4 +352,45 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(chosen.threeLetters, chosen.fourLetters)
         XCTAssertGreaterThanOrEqual(chosen.fourLetters, chosen.longer)
     }
+
+    // MARK: - Short terminal commands
+
+    func testShortTerminalCommandsTypedInRussianLayout() {
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            XCTAssertEqual(TextConverter.toLatin("св", variant: variant), "cd")
+            for word in ["св", "ды", "кь", "ьм", "сз", "Св"] {
+                XCTAssertTrue(LanguageDetector.isTerminalCommand(word: word, currentLayoutIsRussian: true, exceptions: [], variant: variant), word)
+            }
+        }
+    }
+
+    // Commands are Latin: under the English layout "cd" is already right,
+    // and nothing typed there is a Cyrillic command.
+    func testShortTerminalCommandsOnlyFromRussianLayout() {
+        XCTAssertFalse(LanguageDetector.isTerminalCommand(word: "cd", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isTerminalCommand(word: "cd", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    func testShortRussianWordsAreNotTerminalCommands() {
+        for word in ["да", "не", "по", "за", "от", "на", "с", "в", "я", "ва"] {
+            XCTAssertFalse(LanguageDetector.isTerminalCommand(word: word, currentLayoutIsRussian: true, exceptions: [], variant: .pc), word)
+        }
+    }
+
+    func testTerminalCommandExceptionWins() {
+        XCTAssertFalse(LanguageDetector.isTerminalCommand(word: "св", currentLayoutIsRussian: true, exceptions: ["св"], variant: .pc))
+    }
+
+    // No entry may be the Latin form of a Russian function word: those are
+    // exactly the short words a Russian speaker types on their own.
+    func testTerminalCommandsDoNotCollideWithRussianFunctionWords() {
+        for command in LanguageDetector.terminalCommandsForTesting {
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                let cyrillic = TextConverter.toCyrillic(command, variant: variant)
+                XCTAssertFalse(LanguageDetector.isCarriableFunctionWord(word: command, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                               "\(command) -> \(cyrillic)")
+            }
+        }
+    }
 }
+

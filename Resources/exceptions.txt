@@ -38,6 +38,10 @@ nosql
 git
 svn
 npm
+cat
+brew
+wget
+grep
 pip
 docker
 kubernetes

@@ -258,10 +258,10 @@ final class InputMonitor {
                 scheduleProactiveCheck()
             }
         } else if isWordBoundary(char) {
-            let wrong = !currentWord.isEmpty && LanguageDetector.isWrongLayout(
+            let wrong = !currentWord.isEmpty && (LanguageDetector.isWrongLayout(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
-            )
+            ) || isTerminalCommand())
             if !currentWord.isEmpty {
                 Log.debug(boundaryDescription(char, wrong: wrong))
             }
@@ -318,6 +318,19 @@ final class InputMonitor {
             carry.reset()
         }
         return false
+    }
+
+    /// A short shell command ("св" for "cd") typed in a terminal — too short
+    /// for isWrongLayout, see LanguageDetector.terminalCommands. Not for a
+    /// fragment: the tail of a token already on screen (after "/" or a
+    /// proactive fix) is not a command of its own.
+    private func isTerminalCommand() -> Bool {
+        !currentWordIsFragment
+            && keystrokeSimulator.isTerminalFrontmost
+            && LanguageDetector.isTerminalCommand(
+                word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
+                exceptions: exceptionStore.words, variant: currentRussianVariant
+            )
     }
 
     /// Debug line for a word boundary. Only ever built inside Log.debug's

@@ -307,4 +307,44 @@ public enum LanguageDetector {
             return russianFunctionWords.contains(converted)
         }
     }
+
+    // MARK: - Short terminal commands
+
+    /// Shell commands too short for the score to judge — every one is below
+    /// minWordLength, so isWrongLayout never sees them, and exceptions can't
+    /// help either: the length guard runs before they are consulted.
+    /// Longer commands are left to the score and the bundled exceptions.
+    ///
+    /// Only consulted with a terminal frontmost (InputMonitor), like the
+    /// leading "/": there a bare "св" is "cd", elsewhere nothing says so.
+    ///
+    /// Every entry's Cyrillic form is checked not to be a Russian word —
+    /// with NSSpellChecker and scripts/eval-data/ru-dict.txt — the same way
+    /// a TLD is. "df" is left out for that reason: "ва" passes the spell
+    /// checker. All entries use letter keys only, so the form is the same
+    /// under both Russian variants.
+    private static let terminalCommands: Set<String> = [
+        "cd", "ls", "ll", "rm", "mv", "cp", "ps", "ln", "du", "go", "vi", "su", "ip",
+    ]
+
+    /// Whether `word`, typed under the Russian layout, is one of
+    /// `terminalCommands` typed in the wrong layout. Russian → English only:
+    /// commands are always Latin. A user exception for the word as typed
+    /// wins, as everywhere else.
+    public static func isTerminalCommand(
+        word: String, currentLayoutIsRussian: Bool,
+        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
+    ) -> Bool {
+        let lower = word.lowercased()
+        // Cyrillic letters only: Latin passes through toLatin unchanged, so
+        // an already-correct "cd" would otherwise match its own entry.
+        guard currentLayoutIsRussian, !lower.isEmpty, lower.allSatisfy({ ("а"..."я").contains($0) || $0 == "ё" }),
+              !exceptions.contains(lower)
+        else { return false }
+        return terminalCommands.contains(TextConverter.toLatin(lower, variant: variant))
+    }
+
+    /// Exposed for tests: the list itself, to check every entry's Cyrillic
+    /// form against the Russian function words.
+    static var terminalCommandsForTesting: Set<String> { terminalCommands }
 }
