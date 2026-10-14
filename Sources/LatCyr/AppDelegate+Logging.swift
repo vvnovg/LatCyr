@@ -18,7 +18,7 @@ extension AppDelegate {
             "permissions: accessibility=\(permissionManager.hasAccessibility) inputMonitoring=\(permissionManager.hasInputMonitoring)",
             // While another app holds Secure Event Input (a password field,
             // some terminals' "Secure Keyboard Entry"), the tap sees no keys.
-            "secure event input: \(IsSecureEventInputEnabled())",
+            "secure event input: \(IsSecureEventInputEnabled() ? "true, held by \(SecureInputHolder.describeCurrent())" : "false")",
             "input sources: \(LayoutManager().enabledInputSourceIDs().joined(separator: ", "))",
             "hybrid apps: \(inputMonitor.hybridAppStore.bundleIDs.sorted().joined(separator: ", "))",
             "exceptions: \(inputMonitor.exceptionStore.words.count) words",

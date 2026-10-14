@@ -20,6 +20,11 @@ final class InputMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var appActivationObserver: NSObjectProtocol?
+    /// See KeyFlowDiagnostics: the only way silence (tap running, no keys)
+    /// ever shows up in the log.
+    private var keyFlow: KeyFlowDiagnostics?
+    private var diagnosticsTimer: Timer?
+    private let diagnosticsInterval: TimeInterval = 5
     private(set) var isRunning = false
 
     init() {
@@ -88,7 +93,9 @@ final class InputMonitor {
         }
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true
-        Log.info("monitor started")
+        let secureInput = IsSecureEventInputEnabled()
+        Log.info("monitor started (secure event input: \(secureInput)\(secureInput ? ", held by \(SecureInputHolder.describeCurrent())" : ""))")
+        startDiagnostics(secureInput: secureInput)
 
         // The word buffer isn't bound to the app it was typed in — a mouse-
         // driven focus change fires no keystroke. Reset it on every app
@@ -121,11 +128,50 @@ final class InputMonitor {
         eventTap = nil
         runLoopSource = nil
         appActivationObserver = nil
+        diagnosticsTimer?.invalidate()
+        diagnosticsTimer = nil
+        keyFlow = nil
         isRunning = false
         currentWord = ""
         currentWordIsFragment = false
         carry.reset()
         Log.info("monitor stopped")
+    }
+
+    // MARK: - Diagnostics
+
+    private func startDiagnostics(secureInput: Bool) {
+        keyFlow = KeyFlowDiagnostics(startedAt: Date(), secureInput: secureInput)
+        // Polls rather than observes: Secure Event Input has no notification.
+        // IsSecureEventInputEnabled is a cheap call; the IORegistry lookup
+        // for the holder only runs on a transition.
+        let timer = Timer(timeInterval: diagnosticsInterval, repeats: true) { [weak self] _ in
+            guard let self, var keyFlow = self.keyFlow else { return }
+            let events = keyFlow.tick(now: Date(), secureInput: IsSecureEventInputEnabled())
+            self.keyFlow = keyFlow
+            events.forEach(self.logKeyFlow)
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        diagnosticsTimer = timer
+    }
+
+    private func logKeyFlow(_ event: KeyFlowDiagnostics.Event) {
+        switch event {
+        case .firstKeyDown(let after):
+            Log.info("first keyDown received \(String(format: "%.0f", after))s after start")
+        case .secureInputChanged(true):
+            // Error, not info: while it lasts LatCyr is deaf, and that must
+            // be visible at the "errors only" level too.
+            Log.error("secure event input on, held by \(SecureInputHolder.describeCurrent()) — no keys reach LatCyr until it is released")
+        case .secureInputChanged(false):
+            Log.info("secure event input off")
+        case .noKeysSinceStart(let secureInput):
+            let cause = secureInput
+                ? "secure event input held by \(SecureInputHolder.describeCurrent())"
+                : "secure event input off — check the Input Monitoring grant (inputMonitoring=\(CGPreflightListenEventAccess()), accessibility=\(AXIsProcessTrusted()))"
+            Log.error("no keyDown received \(Int(KeyFlowDiagnostics.silenceThreshold))s after start: \(cause)")
+        }
     }
 
     // MARK: - Event handling
@@ -148,6 +194,9 @@ final class InputMonitor {
         // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
         // otherwise they'd corrupt the word buffer or re-trigger correction.
         guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
+        if keyFlow?.keyDownSeen == false, let first = keyFlow?.recordKeyDown(at: Date()) {
+            logKeyFlow(first)
+        }
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         // Skip modifier keys themselves — checked first so a bare Cmd tap
