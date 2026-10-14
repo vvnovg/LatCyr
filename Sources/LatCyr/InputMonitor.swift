@@ -482,7 +482,11 @@ final class InputMonitor {
             replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
             anchorFailure: anchorFailure
         ) else { return false }
-        guard keystrokeSimulator.replay(keyCode: keyCode) else {
+        // Hybrid apps are corrected by keystrokes, and Electron terminals
+        // take the retyped word in asynchronously — see replay's doc. Native
+        // terminals and the AX path were verified with an immediate replay.
+        let replayDelay = keystrokeSimulator.isHybridFrontmost ? correctionDelay : 0
+        guard keystrokeSimulator.replay(keyCode: keyCode, after: replayDelay) else {
             Log.error("could not re-post swallowed key \(keyCode); key delivered unswallowed")
             return false
         }

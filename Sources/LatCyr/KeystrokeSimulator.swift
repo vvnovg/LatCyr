@@ -86,26 +86,49 @@ final class KeystrokeSimulator {
     /// the tap skips it on the way back in and the word buffer is untouched.
     /// Returns `false` if the events couldn't be constructed — the caller then
     /// knows the key was lost and must not report success.
+    ///
+    /// `delay` > 0 posts the key later, on the main queue. Needed in Electron
+    /// terminals (xterm.js): they pick up a multi-character Unicode keystroke
+    /// from their hidden textarea on a timer, but act on Enter immediately —
+    /// replayed at once, the Enter overtook the retyped word, which was then
+    /// lost ("ды⏎" erased the word and ran nothing). The events are built
+    /// now either way, so a construction failure is still reported here and
+    /// the caller never swallows a key it cannot give back.
     @discardableResult
-    func replay(keyCode: CGKeyCode) -> Bool {
-        postKeyPress(keyCode: keyCode)
+    func replay(keyCode: CGKeyCode, after delay: TimeInterval = 0) -> Bool {
+        guard let events = makeKeyPress(keyCode: keyCode) else { return false }
+        guard delay > 0 else {
+            post(events)
+            return true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in post(events) }
+        return true
     }
 
     // MARK: - Private
 
     private func postKeyPress(keyCode: CGKeyCode) -> Bool {
+        guard let events = makeKeyPress(keyCode: keyCode) else { return false }
+        post(events)
+        return true
+    }
+
+    private func makeKeyPress(keyCode: CGKeyCode) -> (down: CGEvent, up: CGEvent)? {
         // Build both events before posting either, so a construction
         // failure on keyUp never leaves an unpaired keyDown posted.
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
             Log.error("could not construct key event for keyCode \(keyCode)")
-            return false
+            return nil
         }
         down.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
         up.setIntegerValueField(.eventSourceUserData, value: Self.eventMarker)
-        down.post(tap: .cgSessionEventTap)
-        up.post(tap: .cgSessionEventTap)
-        return true
+        return (down, up)
+    }
+
+    private func post(_ events: (down: CGEvent, up: CGEvent)) {
+        events.down.post(tap: .cgSessionEventTap)
+        events.up.post(tap: .cgSessionEventTap)
     }
 
     private func postUnicodeString(_ string: String) -> Bool {
