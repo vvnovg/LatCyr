@@ -423,8 +423,12 @@ final class InputMonitor {
     private func enableAccessibilityIfHybrid(_ app: NSRunningApplication?) {
         guard let app, let id = app.bundleIdentifier, hybridAppStore.contains(id),
               !KeystrokeSimulator.terminalBundleIDs.contains(id) else { return }
-        let result = textFieldController.enableManualAccessibility(pid: app.processIdentifier)
-        Log.debug("AXManualAccessibility for \(id): AXError \(result.rawValue)")
+        // Electron keeps the web app in Contents/Resources/app.asar.
+        let isElectron = app.bundleURL.map {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent("Contents/Resources/app.asar").path)
+        } ?? false
+        let result = textFieldController.enableManualAccessibility(pid: app.processIdentifier, isElectron: isElectron)
+        Log.debug("accessibility tree for \(id): \(result)")
     }
 
     /// Check the carried chain against the live text and either widen the

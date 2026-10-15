@@ -332,9 +332,26 @@ final class TextFieldController {
     /// Ask an Electron (Chromium) app to build its accessibility tree. Off
     /// by default there: without it the focused element can't be read at
     /// all. Non-Electron apps reject the attribute, which is harmless.
+    ///
+    /// Some Electron builds reject AXManualAccessibility too (Codex inside
+    /// ChatGPT.app: attribute unsupported), but still honour the attribute
+    /// Chromium itself watches, AXEnhancedUserInterface. It's the fallback
+    /// only for Electron apps (`isElectron`): in other apps it turns on
+    /// heavier accessibility modes — all of Chrome's, for one — and can
+    /// disturb window animations, for nothing a terminal-pane check needs.
+    /// Codex answers it with kAXErrorNotImplemented (-25208) and builds the
+    /// tree anyway (verified live: its terminal pane is recognised after
+    /// it), so the result is logged, not trusted. Returns a log-ready
+    /// description of what was set.
     @discardableResult
-    func enableManualAccessibility(pid: pid_t) -> AXError {
-        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    func enableManualAccessibility(pid: pid_t, isElectron: Bool) -> String {
+        let app = AXUIElementCreateApplication(pid)
+        let manual = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        guard manual == .attributeUnsupported, isElectron else {
+            return "AXManualAccessibility: AXError \(manual.rawValue)"
+        }
+        let enhanced = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        return "AXManualAccessibility unsupported, AXEnhancedUserInterface: AXError \(enhanced.rawValue)"
     }
 
     private func role(of element: AXUIElement) -> String? {
