@@ -274,6 +274,11 @@ final class InputMonitor {
                 if !carry.isEmpty { Log.debug("carry reset: second separator (carry \(carry.count))") }
                 carry.reset()
                 scheduleLeadingCharCheck(char)
+            } else if wrong, terminalAwaitsPassword() {
+                // Most likely a password, not a word: leave it as typed and
+                // drop the chain too — nothing typed here is ours to retype.
+                Log.info("correction skipped: a terminal awaits a password")
+                carry.reset()
             } else if wrong {
                 let carried = carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
                 carry.reset()
@@ -335,6 +340,14 @@ final class InputMonitor {
                 exceptions: exceptionStore.words, variant: currentRussianVariant
             )
             && isTerminalFocused
+    }
+
+    /// A terminal is focused and some terminal is waiting for a password —
+    /// see PasswordPrompt for why the tty mode, and why all ttys. Checked
+    /// only once a correction or a layout switch is about to happen: the tty
+    /// scan costs ~1 ms, too much for every keystroke inside the tap.
+    private func terminalAwaitsPassword() -> Bool {
+        isTerminalFocused && PasswordPrompt.anyTerminalAwaitingPassword()
     }
 
     /// Debug line for a word boundary. Only ever built inside Log.debug's
@@ -509,6 +522,10 @@ final class InputMonitor {
             Log.debug("proactive: signal for \(Sensitive(word)) dropped, buffer moved on")
             return
         }
+        guard !terminalAwaitsPassword() else {
+            Log.debug("proactive: skipped, a terminal awaits a password")
+            return
+        }
         // Verify the chain before editing rather than retrying afterwards: a
         // failed edit may already have injected keystrokes in a terminal, and
         // a second attempt would inject them twice. captureWordAnchor works
@@ -543,6 +560,11 @@ final class InputMonitor {
             first: char, currentLayoutIsRussian: wasRussian
         ) else { return }
         guard isTerminalFocused else { return }
+        // A "/" in a password must not switch the layout under the rest of it.
+        guard !PasswordPrompt.anyTerminalAwaitingPassword() else {
+            Log.info("leading-char switch skipped: a terminal awaits a password")
+            return
+        }
         // The character itself is already correct on screen (this isn't an
         // ambiguous key — see CLAUDE.md) — only the layout needs fixing, so
         // there's no text to replace and no AX/KeystrokeSimulator involved.
