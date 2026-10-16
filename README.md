@@ -15,6 +15,13 @@ Releases are numbered (`v0.1.0`, …); what changed is in
 [CHANGELOG.md](CHANGELOG.md). Installation and permission instructions are in
 the release notes.
 
+## Support
+
+LatCyr is free. If it saves your time, you can support the project via
+[GitHub Sponsors](https://github.com/sponsors/vvnovg) — one-time or monthly.
+Sponsorship covers the Apple Developer Program membership (needed to sign and
+notarize builds) and detector improvements.
+
 ## Build
 
 ```bash
