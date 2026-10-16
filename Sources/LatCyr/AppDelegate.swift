@@ -102,6 +102,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let supportItem = NSMenuItem(
+            title: "♥ Поддержать проект…",
+            action: #selector(openSponsorship),
+            keyEquivalent: ""
+        )
+        supportItem.target = self
+        menu.addItem(supportItem)
+
         // Disabled, informational: the version a user quotes when reporting
         // a problem. `swift run` has no Info.plist, hence the fallback.
         let info = Bundle.main.infoDictionary
@@ -124,6 +132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openPermissions() {
         permissionManager.openAccessibilitySettings()
+    }
+
+    @objc private func openSponsorship() {
+        guard let url = URL(string: "https://github.com/sponsors/vvnovg") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func addSelectedWordToExceptions() {
