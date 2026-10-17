@@ -135,7 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSponsorship() {
-        guard let url = URL(string: "https://github.com/sponsors/vvnovg") else { return }
+        // README.ru section «Поддержать проект» lists both rails: GitHub
+        // Sponsors and CloudTips for Russian donors.
+        guard let url = URL(string: "https://github.com/vvnovg/LatCyr/blob/main/README.ru.md#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82") else { return }
         NSWorkspace.shared.open(url)
     }
 
