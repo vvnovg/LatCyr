@@ -63,4 +63,36 @@ final class TextConverterTests: XCTestCase {
         XCTAssertEqual(TextConverter.toCyrillic("/", variant: .apple), "/")
         XCTAssertEqual(TextConverter.toCyrillic("/", variant: .pc), ".")
     }
+
+    // MARK: - applyingCase
+
+    func testApplyingCaseKeepsAutoCapitalisedFirstLetter() {
+        // macOS auto-capitalised the typed "d"; the buffer conversion is lowercase.
+        XCTAssertEqual(TextConverter.applyingCase(of: "D ckexft", to: "в случае"), "В случае")
+    }
+
+    func testApplyingCaseMirrorsEveryLetter() {
+        XCTAssertEqual(TextConverter.applyingCase(of: "ghbDTN", to: "привет"), "приВЕТ")
+        XCTAssertEqual(TextConverter.applyingCase(of: "ПРИвет", to: "GHBDTN"), "GHBdtn")
+    }
+
+    func testApplyingCaseLeavesNonLetterPositionsAlone() {
+        // "<" and "," are the б key; they carry no case on screen.
+        XCTAssertEqual(TextConverter.applyingCase(of: "<s", to: "Бы"), "Бы")
+        XCTAssertEqual(TextConverter.applyingCase(of: ",s", to: "бы"), "бы")
+        XCTAssertEqual(TextConverter.applyingCase(of: "z ns", to: "Я ты"), "я ты")
+    }
+
+    func testApplyingCaseHandlesYo() {
+        XCTAssertEqual(TextConverter.applyingCase(of: "`ж", to: "ёж"), "ёж")
+        XCTAssertEqual(TextConverter.applyingCase(of: "Tot", to: "еще"), "Еще")
+    }
+
+    func testApplyingCaseReturnsReplacementWhenLengthsDiffer() {
+        XCTAssertEqual(TextConverter.applyingCase(of: "Ab", to: "абв"), "абв")
+    }
+
+    func testApplyingCaseKeepsCharacterThatWouldWiden() {
+        XCTAssertEqual(TextConverter.applyingCase(of: "A", to: "ß"), "ß")
+    }
 }

@@ -255,9 +255,61 @@ final class TextFieldController {
     private static let spaceUTF16: UInt16 = 32
 
     private func replace(range: Range<Int>, with replacement: String, in element: AXUIElement, utf16: [UInt16], cursor: Int) -> Bool {
+        // Keep the case the app shows on screen (auto-capitalisation), not
+        // the case of the typed buffer.
+        let onScreen = String(utf16CodeUnits: Array(utf16[range]), count: range.count)
+        let replacement = TextConverter.applyingCase(of: onScreen, to: replacement)
         let newText = String(utf16CodeUnits: Array(utf16[0..<range.lowerBound]), count: range.lowerBound)
             + replacement
             + String(utf16CodeUnits: Array(utf16[range.upperBound..<utf16.count]), count: utf16.count - range.upperBound)
+        // Range first, whole value only as a fallback: writing kAXValue
+        // replaces the entire document with a plain string, which in rich
+        // text resets all formatting to the default font (TextEdit RTF: 28pt
+        // text dropped to 12pt) and costs O(document) per correction.
+        // Selecting the word and writing kAXSelectedText inserts like typing
+        // — the new text inherits the surrounding attributes.
+        guard replaceSelection(range, with: replacement, in: element, expecting: newText)
+                || replaceWholeValue(with: newText, in: element) else { return false }
+        // Preserve the cursor's position relative to the text: shift it by the
+        // length change of the replaced range. This keeps the cursor after any
+        // trailing whitespace (e.g. the space that triggered the correction),
+        // so the next word is not inserted before it.
+        let newCursor = cursor + (replacement.utf16.count - range.count)
+        guard setCursor(newCursor, in: element) else {
+            Log.debug("replace: text replaced but cursor move failed")
+            return false
+        }
+        return true
+    }
+
+    /// Select `range` and write `replacement` as the selected text. Success
+    /// only if the field then reads back as `expected`.
+    private func replaceSelection(_ range: Range<Int>, with replacement: String, in element: AXUIElement, expecting expected: String) -> Bool {
+        var cfRange = CFRange(location: range.lowerBound, length: range.count)
+        guard let axRange = AXValueCreate(.cfRange, &cfRange) else { return false }
+        let selectResult = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+        guard selectResult == .success else {
+            Log.debug("replace: selecting range failed (AXError \(selectResult.rawValue), role \(role(of: element) ?? "-")), falling back to value write")
+            return false
+        }
+        let writeResult = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, replacement as CFTypeRef)
+        guard writeResult == .success else {
+            Log.debug("replace: selected-text write failed (AXError \(writeResult.rawValue), role \(role(of: element) ?? "-")), falling back to value write")
+            return false
+        }
+        guard text(of: element) == expected else {
+            // Whatever the app did with the selection, the value write that
+            // follows sets the whole field to `expected`, so a partial
+            // application here can't survive into the result.
+            Log.debug("replace: selected-text write reported success but was not applied (role \(role(of: element) ?? "-")), falling back to value write")
+            return false
+        }
+        return true
+    }
+
+    /// Write the whole field value. Loses rich-text formatting — used only
+    /// when the app doesn't support replacing the selection.
+    private func replaceWholeValue(with newText: String, in element: AXUIElement) -> Bool {
         let writeResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef)
         guard writeResult == .success else {
             Log.debug("replace: AX value write failed (AXError \(writeResult.rawValue), role \(role(of: element) ?? "-"))")
@@ -271,15 +323,6 @@ final class TextFieldController {
         // was never corrected.
         guard text(of: element) == newText else {
             Log.debug("replace: AX write reported success but was not applied (role \(role(of: element) ?? "-"))")
-            return false
-        }
-        // Preserve the cursor's position relative to the text: shift it by the
-        // length change of the replaced range. This keeps the cursor after any
-        // trailing whitespace (e.g. the space that triggered the correction),
-        // so the next word is not inserted before it.
-        let newCursor = cursor + (replacement.utf16.count - range.count)
-        guard setCursor(newCursor, in: element) else {
-            Log.debug("replace: text replaced but cursor move failed")
             return false
         }
         return true

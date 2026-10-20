@@ -60,6 +60,24 @@ public enum TextConverter {
         convert(text, using: variant == .pc ? cyrillicToLatinPC : cyrillicToLatinApple)
     }
 
+    /// `replacement` with the case of each letter taken from `onScreen`, the
+    /// text it replaces. The app may have changed case after the keystroke
+    /// (macOS auto-capitalisation turns a typed "d" into "D"), and the
+    /// conversion of the typed buffer would silently undo that ("в", not
+    /// "В"). Positions where `onScreen` has no cased letter (punctuation keys
+    /// that are letters in the other layout, spaces) keep the replacement's
+    /// own case. Returned unchanged when the character counts differ — then
+    /// positions don't correspond.
+    public static func applyingCase(of onScreen: String, to replacement: String) -> String {
+        let screen = Array(onScreen), target = Array(replacement)
+        guard screen.count == target.count else { return replacement }
+        return String(zip(screen, target).map { s, t in
+            // uppercased() can widen a character ("ß" → "SS"); keep it as is then.
+            let cased = s.isUppercase ? t.uppercased() : s.isLowercase ? t.lowercased() : String(t)
+            return cased.count == 1 ? Character(cased) : t
+        })
+    }
+
     private static func convert(_ text: String, using table: [Character: Character]) -> String {
         String(text.map { char in
             if let mapped = table[char] { return mapped }
