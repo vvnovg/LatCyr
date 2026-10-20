@@ -51,6 +51,22 @@ final class InputMonitor {
     /// a standalone one, corrupting the deletion span of the next
     /// correction (see the terminal reproduction in the finding-1 fix).
     private var currentWordIsFragment = false
+    /// The word before the current one, if LatCyr left it as typed and it
+    /// ended at a single space. Broken by everything that breaks the carry
+    /// chain. See PreviousWord.
+    private var previousWord: PreviousWord?
+    /// Candidate for fix-and-remember with nothing selected. Replaced by
+    /// every successful automatic correction; cleared on app switch.
+    private(set) var pendingFix: PendingFix?
+    /// Genuine (non-synthetic) keyDowns seen. A keystroke PendingFix is
+    /// valid only while this hasn't moved since the correction.
+    private(set) var keyDownCount = 0
+    private var doubleShift = DoubleShiftDetector()
+    /// Called on the main queue when a double Shift is recognised.
+    var onDoubleShift: (() -> Void)?
+
+    private static let leftShiftKeyCode: CGKeyCode = 56
+    private static let rightShiftKeyCode: CGKeyCode = 60
 
     /// Delay before applying a correction, letting the app process the
     /// boundary key first. Tunable.
@@ -61,7 +77,7 @@ final class InputMonitor {
 
     func start() {
         guard !isRunning else { return }
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -112,7 +128,8 @@ final class InputMonitor {
             Log.debug("buffer reset: app activated (word \(Sensitive(self.currentWord)), carry \(self.carry.count))")
             self.currentWord = ""
             self.currentWordIsFragment = false
-            self.carry.reset()
+            self.breakChain()
+            self.pendingFix = nil
         }
     }
 
@@ -136,7 +153,8 @@ final class InputMonitor {
         isRunning = false
         currentWord = ""
         currentWordIsFragment = false
-        carry.reset()
+        breakChain()
+        pendingFix = nil
         Log.info("monitor stopped")
     }
 
@@ -178,6 +196,36 @@ final class InputMonitor {
 
     // MARK: - Event handling
 
+    /// Everything that breaks the carry chain also breaks "the word right
+    /// before": both describe text immediately behind the cursor.
+    private func breakChain() {
+        carry.reset()
+        previousWord = nil
+    }
+
+    /// Shift transitions go to the double-Shift detector; any other modifier
+    /// breaks a pending pair. Never touches the word buffer or the chain —
+    /// modifiers don't type anything.
+    private func handleFlagsChanged(_ event: CGEvent) {
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags
+        let input: DoubleShiftDetector.Input
+        if keyCode == Self.leftShiftKeyCode || keyCode == Self.rightShiftKeyCode,
+           flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskSecondaryFn]).isEmpty {
+            input = flags.contains(.maskShift) ? .shiftDown : .shiftUp
+        } else {
+            input = .otherKey
+        }
+        guard doubleShift.feed(input, at: Self.seconds(event)) else { return }
+        Log.debug("double shift recognised")
+        DispatchQueue.main.async { [weak self] in self?.onDoubleShift?() }
+    }
+
+    /// CGEvent timestamps are nanoseconds since boot.
+    private static func seconds(_ event: CGEvent) -> TimeInterval {
+        TimeInterval(event.timestamp) / 1_000_000_000
+    }
+
     /// Returns `true` when the event must be swallowed instead of delivered.
     /// Only ever true for Enter/Tab that ended a wrong-layout word: the key is
     /// re-posted by `applyCorrectionNow` once the text has been fixed.
@@ -192,10 +240,17 @@ final class InputMonitor {
             if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
             return false
         }
+        if type == .flagsChanged {
+            guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
+            handleFlagsChanged(event)
+            return false
+        }
         guard type == .keyDown else { return false }
         // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
         // otherwise they'd corrupt the word buffer or re-trigger correction.
         guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
+        keyDownCount += 1
+        _ = doubleShift.feed(.otherKey, at: Self.seconds(event))
         if keyFlow?.keyDownSeen == false, let first = keyFlow?.recordKeyDown(at: Date()) {
             logKeyFlow(first)
         }
@@ -213,7 +268,7 @@ final class InputMonitor {
             // stale chain, so the keystroke fallback would delete the
             // chain's length blind.
             if !carry.isEmpty { Log.debug("carry reset: shortcut (carry \(carry.count))") }
-            carry.reset()
+            breakChain()
             return false
         }
 
@@ -224,7 +279,7 @@ final class InputMonitor {
                 // the carried word itself, so the chain no longer describes
                 // the text in front of the cursor.
                 if !carry.isEmpty { Log.debug("carry reset: backspace past word start (carry \(carry.count))") }
-                carry.reset()
+                breakChain()
             } else {
                 currentWord.removeLast()
             }
@@ -241,7 +296,7 @@ final class InputMonitor {
             // longer be assumed to sit right before the cursor, and the
             // buffer's relationship to on-screen text is now lost.
             currentWordIsFragment = false
-            carry.reset()
+            breakChain()
             return false
         }
 
@@ -272,16 +327,21 @@ final class InputMonitor {
                 // (double space, ", "). A chain is only ever carried across
                 // exactly one space, so this one is spent.
                 if !carry.isEmpty { Log.debug("carry reset: second separator (carry \(carry.count))") }
-                carry.reset()
+                breakChain()
                 scheduleLeadingCharCheck(char)
             } else if wrong, terminalAwaitsPassword() {
                 // Most likely a password, not a word: leave it as typed and
                 // drop the chain too — nothing typed here is ours to retype.
                 Log.info("correction skipped: a terminal awaits a password")
-                carry.reset()
+                breakChain()
             } else if wrong {
                 let carried = carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
-                carry.reset()
+                // Only a word typed in the same layout and variant can be
+                // the one LatCyr missed right before this correction.
+                let before = previousWord.flatMap {
+                    $0.layoutIsRussian == currentLayoutIsRussian && $0.variant == currentRussianVariant ? $0 : nil
+                }
+                breakChain()
                 if char.isNewline || char == "\t" {
                     let word = currentWord
                     currentWord = ""
@@ -291,10 +351,10 @@ final class InputMonitor {
                     currentWordIsFragment = false
                     return applyCorrectionNow(
                         word: word, carried: carried, wasRussian: currentLayoutIsRussian,
-                        variant: currentRussianVariant, keyCode: keyCode
+                        variant: currentRussianVariant, keyCode: keyCode, previous: before
                     )
                 }
-                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char)
+                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before)
             } else if char == " ", !currentWordIsFragment, LanguageDetector.isCarriableFunctionWord(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
@@ -309,6 +369,13 @@ final class InputMonitor {
                 carry.append(currentWord, layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
             } else {
                 carry.reset()
+                // A word LatCyr left alone, ended by a single space: the
+                // candidate for fix-and-remember if the next word gets
+                // corrected. A fragment is the tail of an on-screen token,
+                // not a word of its own.
+                previousWord = (char == " " && !currentWord.isEmpty && !currentWordIsFragment)
+                    ? PreviousWord(text: currentWord, layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
+                    : nil
             }
             currentWord = ""
             // A genuine boundary character has now landed on screen, so
@@ -322,7 +389,7 @@ final class InputMonitor {
             }
             currentWord = ""
             currentWordIsFragment = false
-            carry.reset()
+            breakChain()
         }
         return false
     }
@@ -370,8 +437,11 @@ final class InputMonitor {
         let word = currentWord
         let wasRussian = currentLayoutIsRussian
         let variant = currentRussianVariant
+        let previous = previousWord.flatMap {
+            $0.layoutIsRussian == currentLayoutIsRussian && $0.variant == currentRussianVariant ? $0 : nil
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
-            self?.performProactiveFix(word: word, wasRussian: wasRussian, variant: variant)
+            self?.performProactiveFix(word: word, wasRussian: wasRussian, variant: variant, previous: previous)
         }
     }
 
@@ -382,7 +452,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character) {
+    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -392,6 +462,10 @@ final class InputMonitor {
         // delayed call still runs so the keystroke fallback gets a chance.
         let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
+        let previousAnchor = previous.flatMap { prev in
+            resolved.anchor.flatMap { textFieldController.previousWordAnchor(before: $0, word: prev.text, variant: variant) }
+        }
+        let keyDownsAtBoundary = keyDownCount
         // Secure Event Input held by another app hides keystrokes from the
         // tap entirely; logging it here lets support spot it next to a miss.
         Log.debug("retroactive scheduled: anchor=\(captured != nil) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
@@ -399,7 +473,8 @@ final class InputMonitor {
             self?.applyCorrection(
                 word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
                 replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
-                anchorFailure: anchorFailure
+                anchorFailure: anchorFailure,
+                previous: previous, previousAnchor: previousAnchor, keyDownsAtBoundary: keyDownsAtBoundary
             )
         }
     }
@@ -490,14 +565,18 @@ final class InputMonitor {
     /// Enter, which is worse than leaving the word uncorrected.
     private func applyCorrectionNow(
         word: String, carried: [String], wasRussian: Bool,
-        variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode
+        variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode, previous: PreviousWord?
     ) -> Bool {
         let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
+        let previousAnchor = previous.flatMap { prev in
+            resolved.anchor.flatMap { textFieldController.previousWordAnchor(before: $0, word: prev.text, variant: variant) }
+        }
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
             replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
-            anchorFailure: anchorFailure
+            anchorFailure: anchorFailure,
+            previous: previous, previousAnchor: previousAnchor, keyDownsAtBoundary: keyDownCount
         ) else { return false }
         // Hybrid apps are corrected by keystrokes, and Electron terminals
         // take the retyped word in asynchronously — see replay's doc. Native
@@ -510,7 +589,7 @@ final class InputMonitor {
         return true
     }
 
-    private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) {
+    private func performProactiveFix(word: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, previous: PreviousWord?) {
         guard word.count == 2 else { return }
         let chars = Array(word)
         guard LanguageDetector.proactiveSwitchSignal(
@@ -532,14 +611,16 @@ final class InputMonitor {
         // here even mid-word — the cursor sits right after the two typed
         // characters, so it finds exactly this word.
         let pending = carry.carried(layoutIsRussian: wasRussian, variant: variant)
-        // .anchor (widened) is deliberately discarded here — only .carried is
-        // used. replacePrefix re-derives its own range from the live cursor
-        // rather than taking an anchor, so widening it here would be wasted
-        // work; resolveCarry is called only for its text-match verification.
-        let carried = pending.isEmpty
-            ? []
-            : resolveCarry(pending, anchor: captureAnchor(matching: word, variant: variant).anchor, variant: variant).carried
-        if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true) {
+        // The anchor serves two checks: the carried chain, and the word
+        // right before the span for fix-and-remember.
+        let prefixAnchor = (pending.isEmpty && previous == nil) ? nil : captureAnchor(matching: word, variant: variant).anchor
+        let resolved = resolveCarry(pending, anchor: prefixAnchor, variant: variant)
+        let carried = pending.isEmpty ? [] : resolved.carried
+        let previousAnchor = previous.flatMap { prev in
+            resolved.anchor.flatMap { textFieldController.previousWordAnchor(before: $0, word: prev.text, variant: variant) }
+        }
+        if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true,
+                           previous: previous, previousAnchor: previousAnchor, keyDownsAtBoundary: keyDownCount) {
             currentWord = ""
             // Whatever gets typed next is not a fresh token: the word on
             // screen already has its first two characters (now corrected),
@@ -547,7 +628,7 @@ final class InputMonitor {
             // same on-screen word, not to a new one. See the property's doc
             // comment — this is the case it exists for.
             currentWordIsFragment = true
-            carry.reset()
+            breakChain()
         }
     }
 
@@ -579,7 +660,7 @@ final class InputMonitor {
         // it, so the next buffer is again a suffix of an on-screen token,
         // not a fresh one. See currentWordIsFragment's doc comment.
         currentWordIsFragment = true
-        carry.reset()
+        breakChain()
     }
 
     @discardableResult
@@ -587,7 +668,10 @@ final class InputMonitor {
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
         boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
         wordAnchor: TextFieldController.WordAnchor? = nil,
-        anchorFailure: TextFieldController.AnchorFailure? = nil
+        anchorFailure: TextFieldController.AnchorFailure? = nil,
+        previous: PreviousWord? = nil,
+        previousAnchor: TextFieldController.WordAnchor? = nil,
+        keyDownsAtBoundary: Int = 0
     ) -> Bool {
         // One span, one conversion: TextConverter leaves unmapped characters
         // alone and the space key is in neither table, so joining the chain
@@ -647,6 +731,7 @@ final class InputMonitor {
             if axReplaced {
                 // Only the word was replaced; the chain stays as typed.
                 Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(convertedWord)) carried=0")
+                recordPendingFix(previous: previous, anchor: previousAnchor)
                 switchLayout(wasRussian: wasRussian)
                 return true
             }
@@ -656,6 +741,7 @@ final class InputMonitor {
         let path = replacePrefix ? "proactive" : "retroactive"
         if axReplaced {
             Log.info("corrected via ax (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count)")
+            recordPendingFix(previous: previous, anchor: previousAnchor)
             switchLayout(wasRussian: wasRussian)
             return true
         }
@@ -697,9 +783,32 @@ final class InputMonitor {
             logNotApplied("keystroke fallback failed", proactive: replacePrefix, span: span)
             return false
         }
+        // Screen after the previous word is now exactly: space, the corrected
+        // span, the boundary — but only if no key landed since the boundary
+        // (correctionDelay is 50 ms of the user still typing). Enter/Tab and
+        // the proactive path have no visible boundary: no candidate.
+        if let previous, let boundary, keyDownCount == keyDownsAtBoundary {
+            pendingFix = .keystroke(
+                word: previous.text, tail: " " + converted + String(boundary),
+                keyDownCount: keyDownCount, variant: previous.variant
+            )
+        } else {
+            pendingFix = nil
+        }
         Log.info("corrected via keystroke (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count) deleted=\(deleteCount)")
         switchLayout(wasRussian: wasRussian)
         return true
+    }
+
+    /// After an AX correction: the word before it becomes the candidate, or
+    /// the old candidate is dropped — a newer correction supersedes it.
+    private func recordPendingFix(previous: PreviousWord?, anchor: TextFieldController.WordAnchor?) {
+        if let previous, let anchor {
+            pendingFix = .anchored(anchor: anchor, word: previous.text, variant: previous.variant)
+            Log.debug("pending fix recorded (ax): \(Sensitive(previous.text))")
+        } else {
+            pendingFix = nil
+        }
     }
 
     /// A retroactive miss is a lost correction (error); a proactive miss
