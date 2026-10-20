@@ -338,7 +338,10 @@ final class InputMonitor {
                 let carried = carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
                 // Only a word typed in the same layout and variant can be
                 // the one LatCyr missed right before this correction.
-                let before = previousWord.flatMap {
+                // A chain dropped for another layout/variant is still on screen
+                // between previousWord and this word: no longer adjacent.
+                let chainDropped = !carry.isEmpty && carried.isEmpty
+                let before = chainDropped ? nil : previousWord.flatMap {
                     $0.layoutIsRussian == currentLayoutIsRussian && $0.variant == currentRussianVariant ? $0 : nil
                 }
                 breakChain()
@@ -437,7 +440,11 @@ final class InputMonitor {
         let word = currentWord
         let wasRussian = currentLayoutIsRussian
         let variant = currentRussianVariant
-        let previous = previousWord.flatMap {
+        // A dropped (other layout/variant) chain is still on screen, so
+        // previousWord is no longer adjacent.
+        let chainDropped = !carry.isEmpty
+            && carry.carried(layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant).isEmpty
+        let previous = chainDropped ? nil : previousWord.flatMap {
             $0.layoutIsRussian == currentLayoutIsRussian && $0.variant == currentRussianVariant ? $0 : nil
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
@@ -731,7 +738,9 @@ final class InputMonitor {
             if axReplaced {
                 // Only the word was replaced; the chain stays as typed.
                 Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(convertedWord)) carried=0")
-                recordPendingFix(previous: previous, anchor: previousAnchor)
+                // The uncorrected chain stays on screen between the remembered
+                // word and the correction, so no word is adjacent to it.
+                recordPendingFix(previous: nil, anchor: nil)
                 switchLayout(wasRussian: wasRussian)
                 return true
             }
@@ -792,6 +801,7 @@ final class InputMonitor {
                 word: previous.text, tail: " " + converted + String(boundary),
                 keyDownCount: keyDownCount, variant: previous.variant
             )
+            Log.debug("pending fix recorded (keystroke): \(Sensitive(previous.text))")
         } else {
             pendingFix = nil
         }
