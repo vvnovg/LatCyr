@@ -1,6 +1,6 @@
 import AppKit
 
-// eval-detector — measures LanguageDetector.isWrongLayout on word lists with
+// eval-detector — measures LanguageDetector.wrongLayoutReading (report, metrics, words, flagged; curve uses isWrongLayout) on word lists with
 // no exceptions (the raw detector). Design:
 // docs/superpowers/specs/2026-10-13-bigram-scoring-design.md, §5–§6.
 //

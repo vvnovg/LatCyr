@@ -761,9 +761,6 @@ final class InputMonitor {
         previous: PreviousWord? = nil,
         keyDownsAtBoundary: Int = 0
     ) -> Bool {
-        // One span, one conversion: TextConverter leaves unmapped characters
-        // alone and the space key is in neither table, so joining the chain
-        // and converting the result handles the separators for free.
         let span = (carried + [word]).joined(separator: " ")
         // The chain converts link by link (the space is in neither table);
         // the word comes pre-split by its reading when the caller has one.
