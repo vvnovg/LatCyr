@@ -65,8 +65,11 @@ func isWord(_ word: String, language: String) -> Bool {
                           inSpellDocumentWithTag: 0, wordCount: nil).location == NSNotFound
 }
 
+// What InputMonitor decides on now: the token's best reading (identical to
+// isWrongLayout for tokens without shifted letter keys). curve keeps
+// isWrongLayout — it sweeps thresholds, which the reading doesn't change.
 let detector: Decide = { typed, russianActive, variant in
-    LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: russianActive, exceptions: [], variant: variant)
+    LanguageDetector.wrongLayoutReading(token: typed, currentLayoutIsRussian: russianActive, exceptions: [], variant: variant) != nil
 }
 
 struct Rate {
