@@ -11,6 +11,8 @@ macOS menu bar app that auto-detects text typed in the wrong keyboard layout
 
 **[LatCyr.zip — latest release](https://github.com/vvnovg/LatCyr/releases/latest)**
 
+Requires macOS 14 Sonoma or later; runs on Apple Silicon and Intel Macs.
+
 Releases are numbered (`v0.1.0`, …); what changed is in
 [CHANGELOG.md](CHANGELOG.md). Installation and permission instructions are in
 the release notes.

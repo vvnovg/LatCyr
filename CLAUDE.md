@@ -14,7 +14,7 @@ swift test                           # все тесты
 swift test --filter TextConverterTests   # один тестовый класс
 swift test --filter LanguageDetectorTests/testRussianTypedInEnglishLayout  # один тест
 swift run LatCyr                     # запуск из терминала (см. про разрешения ниже)
-./scripts/package-app.sh             # release-сборка + упаковка в dist/LatCyr.app (Developer ID, без сертификата — ad-hoc)
+./scripts/package-app.sh             # универсальная (arm64 + x86_64) release-сборка + упаковка в dist/LatCyr.app (Developer ID, без сертификата — ad-hoc)
 ./scripts/release.sh                 # выпуск версии из VERSION: тесты, упаковка, нотаризация, тег v<версия>, GitHub-релиз с секцией CHANGELOG
 open dist/LatCyr.app                 # запуск собранного .app
 # замер детектора (подробно — docs/superpowers/specs/2026-10-13-bigram-scoring-design.md, §5)

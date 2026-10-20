@@ -12,6 +12,8 @@
 
 **[LatCyr.zip — последний релиз](https://github.com/vvnovg/LatCyr/releases/latest)**
 
+Нужна macOS 14 Sonoma или новее; работает на Mac с Apple Silicon и Intel.
+
 Релизы нумеруются (`v0.1.0`, …); что изменилось — в [CHANGELOG.md](CHANGELOG.md). Инструкции по установке и разрешениям — в описании релиза.
 
 ## Поддержать проект

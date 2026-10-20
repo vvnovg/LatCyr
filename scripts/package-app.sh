@@ -11,6 +11,9 @@
 # CFBundleVersion (the build number) from the commit count — it only grows,
 # and two builds of different commits never share one.
 #
+# Architectures: a universal binary (arm64 + x86_64), so the app runs on
+# Apple Silicon and Intel Macs.
+#
 # Signing: SIGN_IDENTITY overrides the identity. By default the script uses
 # "Developer ID Application: … (JHWW538CH9)" if it is in the keychain, with the
 # hardened runtime and a secure timestamp (both required for notarization).
@@ -26,13 +29,15 @@ DIST="dist/${APP_NAME}.app"
 VERSION="$(tr -d '[:space:]' < VERSION)"
 BUILD="$(git rev-list --count HEAD)"
 
-swift build -c release
+ARCHS=(--arch arm64 --arch x86_64)
+swift build -c release "${ARCHS[@]}"
+BIN_DIR="$(swift build -c release "${ARCHS[@]}" --show-bin-path)"
 
 rm -rf "$DIST"
 mkdir -p "$DIST/Contents/MacOS"
 mkdir -p "$DIST/Contents/Resources"
 
-cp ".build/release/${APP_NAME}" "$DIST/Contents/MacOS/${APP_NAME}"
+cp "${BIN_DIR}/${APP_NAME}" "$DIST/Contents/MacOS/${APP_NAME}"
 cp "Resources/exceptions.txt" "$DIST/Contents/Resources/exceptions.txt"
 
 cat > "$DIST/Contents/Info.plist" <<PLIST
@@ -77,4 +82,4 @@ else
     SIGNED_WITH="ad-hoc"
 fi
 codesign --verify --strict "$DIST"
-echo "Packaged: $DIST ($VERSION, build $BUILD, $SIGNED_WITH)"
+echo "Packaged: $DIST ($VERSION, build $BUILD, $(lipo -archs "$DIST/Contents/MacOS/${APP_NAME}"), $SIGNED_WITH)"
