@@ -392,5 +392,69 @@ final class LanguageDetectorTests: XCTestCase {
             }
         }
     }
-}
 
+    // MARK: - wrongLayoutReading (shifted letter keys)
+
+    private func reading(_ token: String, russian: Bool = false, exceptions: Set<String> = [],
+                         variant: TextConverter.RussianKeyboardVariant = .pc) -> LanguageDetector.Reading? {
+        LanguageDetector.wrongLayoutReading(token: token, currentLayoutIsRussian: russian,
+                                            exceptions: exceptions, variant: variant)
+    }
+
+    func testLeadingShiftedSymbolIsCapital() {
+        XCTAssertEqual(reading("{jhjij"), .init(prefix: "", core: "{jhjij", suffix: ""))
+        XCTAssertEqual(reading(":fkm"), .init(prefix: "", core: ":fkm", suffix: ""))
+        XCTAssertEqual(reading("<skj"), .init(prefix: "", core: "<skj", suffix: ""))
+        XCTAssertEqual(reading("\"njn"), .init(prefix: "", core: "\"njn", suffix: ""))
+    }
+
+    func testTrailingShiftedSymbolsAreAlwaysPunctuation() {
+        XCTAssertEqual(reading("ghbdtn:"), .init(prefix: "", core: "ghbdtn", suffix: ":"))
+        XCTAssertEqual(reading("ghbdtn\"}"), .init(prefix: "", core: "ghbdtn", suffix: "\"}"))
+    }
+
+    func testWrappedTokenOpeningSymbolIsPunctuation() {
+        XCTAssertEqual(reading("\"ghbdtn\""), .init(prefix: "\"", core: "ghbdtn", suffix: "\""))
+        XCTAssertEqual(reading("{jhjij}"), .init(prefix: "{", core: "jhjij", suffix: "}"))
+    }
+
+    func testUnclosedQuoteIsCapitalKnownLimitation() {
+        // The first of several quoted words has no closing quote in its token.
+        XCTAssertEqual(reading("\"ghbdtn"), .init(prefix: "", core: "\"ghbdtn", suffix: ""))
+    }
+
+    func testMismatchedPairIsNotWrapping() {
+        // "{" opens, but the tail holds a quote, not "}": "{" stays a capital.
+        XCTAssertEqual(reading("{jhjij\""), .init(prefix: "", core: "{jhjij", suffix: "\""))
+    }
+
+    func testEnglishWithShiftedSymbolsUntouched() {
+        XCTAssertNil(reading("\"hello\""))
+        XCTAssertNil(reading("foo:bar"))
+        XCTAssertNil(reading("hello:"))
+    }
+
+    func testOnlyShiftedSymbolsIsNil() {
+        XCTAssertNil(reading("\"::"))
+    }
+
+    func testThreeLetterCapitalNeedsException() {
+        // "это" scores 1.75 against the 2.5 three-letter threshold.
+        XCTAssertNil(reading("\"nj"))
+        // The conversion "Это" is compared with exceptions lowercased.
+        XCTAssertEqual(reading("\"nj", exceptions: ["это"]), .init(prefix: "", core: "\"nj", suffix: ""))
+    }
+
+    func testRussianLayoutShiftedPunctuation() {
+        // Russian layout: Ж is a letter (converted to ":"); a real ":" or quote
+        // typed with Shift+6 / Shift+2 is punctuation.
+        XCTAssertEqual(reading("руддщ:", russian: true), .init(prefix: "", core: "руддщ", suffix: ":"))
+        XCTAssertEqual(reading("\"руддщ\"", russian: true), .init(prefix: "\"", core: "руддщ", suffix: "\""))
+        XCTAssertEqual(reading("цщкдвЖ", russian: true), .init(prefix: "", core: "цщкдвЖ", suffix: ""))
+    }
+
+    func testPlainWordUnchanged() {
+        XCTAssertEqual(reading("ghbdtn"), .init(prefix: "", core: "ghbdtn", suffix: ""))
+        XCTAssertNil(reading("hello"))
+    }
+}

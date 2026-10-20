@@ -140,7 +140,9 @@ public enum LanguageDetector {
 
         if exceptions.contains(lower) { return false }
 
-        let converted = convert(lower, currentLayoutIsRussian: currentLayoutIsRussian, variant: variant)
+        // Lowercased: the shifted keys convert to capitals ("\"" → "Э"),
+        // and exceptions are stored lowercase.
+        let converted = convert(lower, currentLayoutIsRussian: currentLayoutIsRussian, variant: variant).lowercased()
         if exceptions.contains(converted) { return true }
         if looksLikeDomain(converted) { return true }
 
@@ -148,6 +150,54 @@ public enum LanguageDetector {
             // Length counts the word as typed, punctuation keys included
             // (the same unit as minWordLength).
             > thresholds.threshold(forLength: lower.count)
+    }
+
+    /// How a typed token splits for correction: `core` is converted, `prefix`
+    /// and `suffix` are punctuation left as typed. See wrongLayoutReading.
+    public struct Reading: Equatable {
+        public let prefix: String
+        public let core: String
+        public let suffix: String
+    }
+
+    /// Opening shifted symbols and the closer that makes them a pair.
+    private static let wrappingPairs: [Character: Character] = ["\"": "\"", "{": "}", "<": ">"]
+
+    /// The reading of `token` if it is a wrong-layout word, or nil.
+    ///
+    /// The Shift layer of the letter keys (TextConverter.shiftedLetterSymbols:
+    /// "<" Б, ":" Ж, "\"" Э …) is read by position, not by score. A trailing
+    /// run is always punctuation — no word ends in a capital, while "word:"
+    /// and a closing quote are everyday. A leading one is a capital
+    /// («Хорошо», «Этот»), unless the token is wrapped — opens with "\"",
+    /// "{" or "<" and its tail holds the matching closer — and then it is
+    /// punctuation ("\"привет\""). Comparing the LLR of both readings does
+    /// not work: the mean per letter pair favours the word without its first
+    /// letter ("{орошо" over «Хорошо», "\"тот" over «Этот»). In the middle a
+    /// symbol stays a letter, like ";" in "ckj;yj" («сложно»).
+    public static func wrongLayoutReading(
+        token: String, currentLayoutIsRussian: Bool,
+        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
+    ) -> Reading? {
+        let shifted = TextConverter.shiftedLetterSymbols(for: variant)
+        var body = Substring(token)
+        var suffixStart = body.endIndex
+        while suffixStart > body.startIndex, shifted.contains(body[body.index(before: suffixStart)]) {
+            suffixStart = body.index(before: suffixStart)
+        }
+        let suffix = String(body[suffixStart...])
+        body = body[..<suffixStart]
+        guard !body.isEmpty else { return nil }
+
+        var prefix = ""
+        if let first = body.first, body.count > 1,
+           let closer = wrappingPairs[first], suffix.contains(closer) {
+            prefix = String(first)
+            body = body.dropFirst()
+        }
+        let reading = Reading(prefix: prefix, core: String(body), suffix: suffix)
+        return isWrongLayout(word: reading.core, currentLayoutIsRussian: currentLayoutIsRussian,
+                             exceptions: exceptions, variant: variant) ? reading : nil
     }
 
     /// The score half of `isWrongLayout` on its own: how much more plausible
