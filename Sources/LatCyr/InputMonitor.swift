@@ -143,7 +143,12 @@ final class InputMonitor {
             self.currentWord = ""
             self.currentWordIsFragment = false
             self.breakChain()
-            self.pendingFix = nil
+            // A keystroke candidate describes the screen of the app just left.
+            // An anchored one is re-verified against its field's live text
+            // before any write, and ManualFixer only applies it while that
+            // field's app is frontmost — so it survives a round trip to
+            // another app (switch away, come back, ⇧⇧).
+            if case .keystroke = self.pendingFix { self.pendingFix = nil }
         }
     }
 

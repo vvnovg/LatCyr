@@ -106,6 +106,10 @@ final class ManualFixer {
             return remember(plan, path: "selection-ax")
         }
         guard case let .anchored(anchor, word, variant) = pending else { return .nothingToFix }
+        // The candidate outlives app switches; never edit a background app's field.
+        var anchorPID: pid_t = 0
+        guard AXUIElementGetPid(anchor.element, &anchorPID) == .success,
+              anchorPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else { return .nothingToFix }
         guard let plan = ManualFix.plan(for: word, variant: variant) else { return .invalidWord }
         // replaceAnchoredWord re-reads the text at the anchor and refuses if
         // it no longer holds `word` — before any write.
