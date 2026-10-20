@@ -22,6 +22,10 @@ public enum TextConverter {
         "j": "о", "k": "л", "l": "д", ";": "ж", "'": "э",
         "z": "я", "x": "ч", "c": "с", "v": "м", "b": "и", "n": "т",
         "m": "ь", ",": "б", ".": "ю",
+        // Shift on the same keys: the capitals of the letters above. Exact
+        // entries, because convert's lowercase path would lift "б" to "Б"
+        // but map "Б" back to ","; with these, "Б" → "<" and "<" → "Б".
+        "<": "Б", ">": "Ю", ":": "Ж", "\"": "Э", "{": "Х", "}": "Ъ",
     ]
 
     private static let pcOverlay: [Character: Character] = ["`": "ё", "~": "Ё", "/": "."]
@@ -49,7 +53,18 @@ public enum TextConverter {
     /// word buffer breaks before the last letter.
     public static func ambiguousLetterSymbols(for variant: RussianKeyboardVariant) -> Set<Character> {
         let base: Set<Character> = [",", ".", ";", "'", "[", "]"]
-        return variant == .pc ? base.union(["`"]) : base.union(["\\"])
+        return (variant == .pc ? base.union(["`"]) : base.union(["\\"]))
+            .union(shiftedLetterSymbols(for: variant))
+    }
+
+    /// The Shift layer of the punctuation keys that are Russian letters —
+    /// capital Б Ю Ж Э Х Ъ and Ё. Unlike the unshifted ones, these are mostly
+    /// punctuation at the end of a word ("word:", a closing quote) and capitals
+    /// at its start ("Это"), which LanguageDetector.wrongLayoutReading decides
+    /// per token.
+    public static func shiftedLetterSymbols(for variant: RussianKeyboardVariant) -> Set<Character> {
+        let base: Set<Character> = ["<", ">", ":", "\"", "{", "}"]
+        return variant == .pc ? base.union(["~"]) : base.union(["|"])
     }
 
     public static func toCyrillic(_ text: String, variant: RussianKeyboardVariant) -> String {

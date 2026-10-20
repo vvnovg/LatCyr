@@ -95,4 +95,44 @@ final class TextConverterTests: XCTestCase {
     func testApplyingCaseKeepsCharacterThatWouldWiden() {
         XCTAssertEqual(TextConverter.applyingCase(of: "A", to: "ß"), "ß")
     }
+
+    // MARK: - Shifted punctuation keys (capital Б Ю Ж Э Х Ъ)
+
+    private let shiftedPairs: [(String, String)] = [
+        ("<", "Б"), (">", "Ю"), (":", "Ж"), ("\"", "Э"), ("{", "Х"), ("}", "Ъ"),
+    ]
+
+    func testShiftedKeysConvertBothWaysInBothVariants() {
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            for (latin, cyrillic) in shiftedPairs {
+                XCTAssertEqual(TextConverter.toCyrillic(latin, variant: variant), cyrillic, "\(latin) \(variant)")
+                XCTAssertEqual(TextConverter.toLatin(cyrillic, variant: variant), latin, "\(cyrillic) \(variant)")
+            }
+        }
+    }
+
+    func testLowercasePunctuationPairsUnchanged() {
+        XCTAssertEqual(TextConverter.toLatin("б", variant: .pc), ",")
+        XCTAssertEqual(TextConverter.toLatin("Б", variant: .pc), "<")
+        XCTAssertEqual(TextConverter.toCyrillic(",", variant: .pc), "б")
+        XCTAssertEqual(TextConverter.toCyrillic("<", variant: .pc), "Б")
+    }
+
+    func testShiftedWordsBothDirections() {
+        XCTAssertEqual(TextConverter.toLatin("БвшмЮ", variant: .pc), "<div>")
+        XCTAssertEqual(TextConverter.toLatin("цщкдвЖ", variant: .apple), "world:")
+        XCTAssertEqual(TextConverter.toCyrillic("{jhjij", variant: .pc), "Хорошо")
+    }
+
+    func testShiftedSymbolsAreAmbiguousLetterSymbols() {
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            let shifted = TextConverter.shiftedLetterSymbols(for: variant)
+            XCTAssertTrue(shifted.isSubset(of: TextConverter.ambiguousLetterSymbols(for: variant)))
+            XCTAssertTrue(shifted.isSuperset(of: ["<", ">", ":", "\"", "{", "}"]))
+        }
+        XCTAssertTrue(TextConverter.shiftedLetterSymbols(for: .pc).contains("~"))
+        XCTAssertFalse(TextConverter.shiftedLetterSymbols(for: .pc).contains("|"))
+        XCTAssertTrue(TextConverter.shiftedLetterSymbols(for: .apple).contains("|"))
+        XCTAssertFalse(TextConverter.shiftedLetterSymbols(for: .apple).contains("~"))
+    }
 }
