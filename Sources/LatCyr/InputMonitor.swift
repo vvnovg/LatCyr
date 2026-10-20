@@ -369,9 +369,6 @@ final class InputMonitor {
                 exceptions: exceptionStore.words, variant: currentRussianVariant
             )
             let wrong = !currentWord.isEmpty && (reading != nil || isTerminalCommand())
-            let convertedWord = reading.map {
-                $0.prefix + convert($0.core, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant) + $0.suffix
-            }
             if !currentWord.isEmpty {
                 Log.debug(boundaryDescription(char, wrong: wrong))
             }
@@ -408,10 +405,10 @@ final class InputMonitor {
                     return applyCorrectionNow(
                         word: word, carried: carried, wasRussian: currentLayoutIsRussian,
                         variant: currentRussianVariant, keyCode: keyCode, previous: before,
-                        convertedWord: convertedWord
+                        reading: reading
                     )
                 }
-                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before, convertedWord: convertedWord)
+                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before, reading: reading)
             } else if char == " ", !currentWordIsFragment, LanguageDetector.isCarriableFunctionWord(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
@@ -546,7 +543,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?, convertedWord: String?) {
+    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?, reading: LanguageDetector.Reading?) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -554,17 +551,18 @@ final class InputMonitor {
         // to correct it (see WordAnchor's doc comment). nil is fine here:
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
-        let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
-        let resolved = resolveCarry(carried, anchor: captured, variant: variant)
+        let target = captureTarget(word: word, reading: reading, wasRussian: wasRussian, variant: variant)
+        let carried = target.coreOnly ? [] : carried
+        let resolved = resolveCarry(carried, anchor: target.anchor, variant: variant)
         let keyDownsAtBoundary = keyDownCount
         // Secure Event Input held by another app hides keystrokes from the
         // tap entirely; logging it here lets support spot it next to a miss.
-        Log.debug("retroactive scheduled: anchor=\(captured != nil) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
+        Log.debug("retroactive scheduled: anchor=\(target.anchor != nil) coreOnly=\(target.coreOnly) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
-                word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-                replacePrefix: false, convertedWord: convertedWord, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
-                anchorFailure: anchorFailure,
+                word: target.word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
+                replacePrefix: false, convertedWord: target.convertedWord, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+                anchorFailure: target.failure,
                 previous: previous, keyDownsAtBoundary: keyDownsAtBoundary
             )
         }
@@ -583,6 +581,37 @@ final class InputMonitor {
         let anchor = textFieldController.captureWordAnchor(matching: word, variant: variant)
         // Read right away: the next captureWordAnchor call overwrites it.
         return (anchor, textFieldController.lastAnchorFailure)
+    }
+
+    /// What a retroactive correction replaces, and with what: normally the
+    /// whole token, its core converted and its punctuation kept (`reading`;
+    /// nil for a short terminal command, converted whole).
+    ///
+    /// Smart quotes are the exception. The buffer holds `"ghbdtn"`, but an
+    /// app that curls quotes shows `“ghbdtn”`, and captureWordAnchor stops
+    /// at “ and ” (they are boundaries there, unlike the straight quote), so
+    /// the whole token never matches. When it fails on exactly that — a
+    /// text mismatch, for a token with punctuation around its core — the
+    /// core alone is matched instead and is all that gets replaced
+    /// (`coreOnly`); the AX re-check before the write is unchanged. The
+    /// carried chain is then dropped by the caller: the quote, not a single
+    /// space, separates it from the core. Keystroke-fallback apps keep the
+    /// whole token: they have no AX text to tell what is on screen, and the
+    /// fallback deletes by the token's length.
+    private func captureTarget(
+        word: String, reading: LanguageDetector.Reading?, wasRussian: Bool,
+        variant: TextConverter.RussianKeyboardVariant
+    ) -> (word: String, convertedWord: String?, coreOnly: Bool,
+          anchor: TextFieldController.WordAnchor?, failure: TextFieldController.AnchorFailure?) {
+        let (captured, failure) = captureAnchor(matching: word, variant: variant)
+        let whole = reading.map { $0.prefix + convert($0.core, wasRussian: wasRussian, variant: variant) + $0.suffix }
+        guard captured == nil, let reading, !(reading.prefix.isEmpty && reading.suffix.isEmpty),
+              case .textMismatch = failure, !keystrokeSimulator.usesKeystrokeFallback,
+              let coreAnchor = captureAnchor(matching: reading.core, variant: variant).anchor else {
+            return (word, whole, false, captured, failure)
+        }
+        Log.debug("anchor: matched the core only (punctuation on screen differs, e.g. smart quotes)")
+        return (reading.core, convert(reading.core, wasRussian: wasRussian, variant: variant), true, coreAnchor, nil)
     }
 
     /// Terminal-only behaviour (leading "/", short commands) applies here:
@@ -657,14 +686,15 @@ final class InputMonitor {
     private func applyCorrectionNow(
         word: String, carried: [String], wasRussian: Bool,
         variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode, previous: PreviousWord?,
-        convertedWord: String?
+        reading: LanguageDetector.Reading?
     ) -> Bool {
-        let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
-        let resolved = resolveCarry(carried, anchor: captured, variant: variant)
+        let target = captureTarget(word: word, reading: reading, wasRussian: wasRussian, variant: variant)
+        let carried = target.coreOnly ? [] : carried
+        let resolved = resolveCarry(carried, anchor: target.anchor, variant: variant)
         guard applyCorrection(
-            word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, convertedWord: convertedWord, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
-            anchorFailure: anchorFailure,
+            word: target.word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
+            replacePrefix: false, convertedWord: target.convertedWord, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+            anchorFailure: target.failure,
             previous: previous, keyDownsAtBoundary: keyDownCount
         ) else { return false }
         // Hybrid apps are corrected by keystrokes, and Electron terminals
