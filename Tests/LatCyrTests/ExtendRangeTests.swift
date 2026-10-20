@@ -116,4 +116,38 @@ final class ExtendRangeTests: XCTestCase {
         let start = controller.extendRange(range, backwardOver: ["d"], in: units, variant: .pc)
         XCTAssertNil(start)
     }
+
+    // MARK: - Previous word (fix-and-remember)
+
+    /// previousWordAnchor asks extendRange for exactly one word before the
+    /// corrected span: "ubarf надо" with the span on "надо".
+    func testPreviousWordBeforeCorrectedSpan() {
+        let text = "ubarf надо"
+        let units = utf16(text)
+        let spanStart = "ubarf ".utf16.count
+        let start = controller.extendRange(spanStart..<units.count, backwardOver: ["ubarf"], in: units, variant: .pc)
+        XCTAssertEqual(start, 0)
+    }
+
+    func testPreviousWordAfterEarlierText() {
+        let text = "Ну и ubarf надо"
+        let units = utf16(text)
+        let spanStart = "Ну и ubarf ".utf16.count
+        let start = controller.extendRange(spanStart..<units.count, backwardOver: ["ubarf"], in: units, variant: .pc)
+        XCTAssertEqual(start, "Ну и ".utf16.count)
+    }
+
+    func testPreviousWordRejectedAcrossDoubleSpace() {
+        let text = "ubarf  надо"
+        let units = utf16(text)
+        let spanStart = "ubarf  ".utf16.count
+        XCTAssertNil(controller.extendRange(spanStart..<units.count, backwardOver: ["ubarf"], in: units, variant: .pc))
+    }
+
+    func testPreviousWordRejectedAcrossComma() {
+        let text = "ubarf, надо"
+        let units = utf16(text)
+        let spanStart = "ubarf, ".utf16.count
+        XCTAssertNil(controller.extendRange(spanStart..<units.count, backwardOver: ["ubarf"], in: units, variant: .pc))
+    }
 }

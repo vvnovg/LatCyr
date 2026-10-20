@@ -213,6 +213,36 @@ final class TextFieldController {
         return WordAnchor(element: anchor.element, range: start..<anchor.range.upperBound)
     }
 
+    /// The non-empty selection in the focused field, with its range. nil for
+    /// no selection, a secure or own field, or an app whose visible text is
+    /// not a real AX value (terminals, hybrid apps).
+    func selectionAnchor() -> (anchor: WordAnchor, text: String)? {
+        guard let element = focusedTextElement(), !isOwnApp(element), !isSecure(element),
+              let text = text(of: element), let selection = selectedRange(of: element),
+              selection.length > 0 else { return nil }
+        let utf16 = Array(text.utf16)
+        let range = selection.location..<(selection.location + selection.length)
+        guard range.lowerBound >= 0, range.upperBound <= utf16.count else { return nil }
+        let selected = String(utf16CodeUnits: Array(utf16[range]), count: range.count)
+        return (WordAnchor(element: element, range: range), selected)
+    }
+
+    /// `word` sitting right before `anchor`, separated by exactly one space
+    /// and preceded by a word boundary — the word fix-and-remember targets
+    /// when nothing is selected. Same matching rules as the carried chain,
+    /// so it reuses extendRange.
+    func previousWordAnchor(
+        before anchor: WordAnchor, word: String, variant: TextConverter.RussianKeyboardVariant
+    ) -> WordAnchor? {
+        guard let text = text(of: anchor.element) else { return nil }
+        let utf16 = Array(text.utf16)
+        guard anchor.range.upperBound <= utf16.count,
+              let start = extendRange(anchor.range, backwardOver: [word], in: utf16, variant: variant) else { return nil }
+        // extendRange returns the start of the word; it ends one space
+        // before the anchor.
+        return WordAnchor(element: anchor.element, range: start..<(anchor.range.lowerBound - 1))
+    }
+
     /// Replace the first `prefix.count` characters of the current word with
     /// `replacement` (used by the proactive path). When `carried` is
     /// non-empty, `replacement` is the conversion of the whole span
