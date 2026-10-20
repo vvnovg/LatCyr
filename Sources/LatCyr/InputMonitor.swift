@@ -361,10 +361,17 @@ final class InputMonitor {
                 scheduleProactiveCheck()
             }
         } else if isWordBoundary(char) {
-            let wrong = !currentWord.isEmpty && (LanguageDetector.isWrongLayout(
-                word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
+            // The token is replaced whole (anchor, deletion count); only the
+            // text that goes in depends on how its shifted-key punctuation
+            // reads — see LanguageDetector.wrongLayoutReading.
+            let reading = currentWord.isEmpty ? nil : LanguageDetector.wrongLayoutReading(
+                token: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
-            ) || isTerminalCommand())
+            )
+            let wrong = !currentWord.isEmpty && (reading != nil || isTerminalCommand())
+            let convertedWord = reading.map {
+                $0.prefix + convert($0.core, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant) + $0.suffix
+            }
             if !currentWord.isEmpty {
                 Log.debug(boundaryDescription(char, wrong: wrong))
             }
@@ -400,10 +407,11 @@ final class InputMonitor {
                     currentWordIsFragment = false
                     return applyCorrectionNow(
                         word: word, carried: carried, wasRussian: currentLayoutIsRussian,
-                        variant: currentRussianVariant, keyCode: keyCode, previous: before
+                        variant: currentRussianVariant, keyCode: keyCode, previous: before,
+                        convertedWord: convertedWord
                     )
                 }
-                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before)
+                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before, convertedWord: convertedWord)
             } else if char == " ", !currentWordIsFragment, LanguageDetector.isCarriableFunctionWord(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
@@ -538,7 +546,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?) {
+    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?, convertedWord: String?) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -555,7 +563,7 @@ final class InputMonitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
                 word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-                replacePrefix: false, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+                replacePrefix: false, convertedWord: convertedWord, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
                 anchorFailure: anchorFailure,
                 previous: previous, keyDownsAtBoundary: keyDownsAtBoundary
             )
@@ -648,13 +656,14 @@ final class InputMonitor {
     /// Enter, which is worse than leaving the word uncorrected.
     private func applyCorrectionNow(
         word: String, carried: [String], wasRussian: Bool,
-        variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode, previous: PreviousWord?
+        variant: TextConverter.RussianKeyboardVariant, keyCode: CGKeyCode, previous: PreviousWord?,
+        convertedWord: String?
     ) -> Bool {
         let (captured, anchorFailure) = captureAnchor(matching: word, variant: variant)
         let resolved = resolveCarry(carried, anchor: captured, variant: variant)
         guard applyCorrection(
             word: word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-            replacePrefix: false, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+            replacePrefix: false, convertedWord: convertedWord, boundary: nil, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
             anchorFailure: anchorFailure,
             previous: previous, keyDownsAtBoundary: keyDownCount
         ) else { return false }
@@ -745,6 +754,7 @@ final class InputMonitor {
     @discardableResult
     private func applyCorrection(
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
+        convertedWord: String? = nil,
         boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
         wordAnchor: TextFieldController.WordAnchor? = nil,
         anchorFailure: TextFieldController.AnchorFailure? = nil,
@@ -755,7 +765,11 @@ final class InputMonitor {
         // alone and the space key is in neither table, so joining the chain
         // and converting the result handles the separators for free.
         let span = (carried + [word]).joined(separator: " ")
-        let converted = wasRussian ? TextConverter.toLatin(span, variant: variant) : TextConverter.toCyrillic(span, variant: variant)
+        // The chain converts link by link (the space is in neither table);
+        // the word comes pre-split by its reading when the caller has one.
+        let wordConverted = convertedWord ?? convert(word, wasRussian: wasRussian, variant: variant)
+        let converted = (carried.map { convert($0, wasRussian: wasRussian, variant: variant) } + [wordConverted])
+            .joined(separator: " ")
 
         var axReplaced: Bool
         // Why axReplaced is false, for the not-applied line: "AX failed"
@@ -804,11 +818,11 @@ final class InputMonitor {
         // wordAnchor today, but that invariant lives two functions away
         // (performProactiveFix), not here, so it's enforced locally too.
         if !replacePrefix, !axReplaced, !carried.isEmpty, let wordAnchor {
-            let convertedWord = wasRussian ? TextConverter.toLatin(word, variant: variant) : TextConverter.toCyrillic(word, variant: variant)
-            axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: convertedWord)
+            let retryWord = wordConverted
+            axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: retryWord)
             if axReplaced {
                 // Only the word was replaced; the chain stays as typed.
-                Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(convertedWord)) carried=0")
+                Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(retryWord)) carried=0")
                 // The uncorrected chain stays on screen between the remembered
                 // word and the correction, so no word is adjacent to it.
                 recordPendingFix(previous: nil, anchor: nil)
@@ -910,6 +924,10 @@ final class InputMonitor {
         } else {
             Log.error("correction not applied: \(reason()) (span \(Sensitive(span)))")
         }
+    }
+
+    private func convert(_ text: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) -> String {
+        wasRussian ? TextConverter.toLatin(text, variant: variant) : TextConverter.toCyrillic(text, variant: variant)
     }
 
     private func switchLayout(wasRussian: Bool) {
