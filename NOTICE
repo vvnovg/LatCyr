@@ -1,0 +1,10 @@
+LatCyr
+Copyright 2026 Viacheslav Novgorodtsev
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes letter-pair statistics (Sources/LatCyr/BigramTables.swift)
+derived from FrequencyWords by Hermit Dave
+(https://github.com/hermitdave/FrequencyWords), whose word lists are licensed
+under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+Those tables are distributed under CC BY-SA 4.0, not under the Apache License.

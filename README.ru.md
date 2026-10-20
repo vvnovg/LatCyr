@@ -143,3 +143,11 @@ swift test
   короткие слова (<3 символов) ретроактивно никогда не исправляются.
 - Приложения, не отдающие текст через Accessibility API, пропускаются.
 - Парольные поля никогда не трогаются.
+
+## Лицензия
+
+LatCyr распространяется под лицензией [Apache License 2.0](LICENSE). Таблицы
+биграмм в `Sources/LatCyr/BigramTables.swift` получены из
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords) и
+распространяются под [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+— см. [NOTICE](NOTICE).

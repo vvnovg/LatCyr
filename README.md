@@ -124,3 +124,11 @@ swift test
   short words (<3 chars) are never corrected.
 - Apps that do not expose text via the Accessibility API are skipped.
 - Password fields are never touched.
+
+## License
+
+LatCyr is licensed under the [Apache License 2.0](LICENSE). The bigram tables
+in `Sources/LatCyr/BigramTables.swift` are derived from
+[FrequencyWords](https://github.com/hermitdave/FrequencyWords) and are
+distributed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+— see [NOTICE](NOTICE).
