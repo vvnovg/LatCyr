@@ -552,12 +552,12 @@ final class InputMonitor {
         // it means no AX-correctable target (e.g. a terminal), and the
         // delayed call still runs so the keystroke fallback gets a chance.
         let target = captureTarget(word: word, reading: reading, wasRussian: wasRussian, variant: variant)
-        let carried = target.coreOnly ? [] : carried
+        let carried = target.narrowed ? [] : carried
         let resolved = resolveCarry(carried, anchor: target.anchor, variant: variant)
         let keyDownsAtBoundary = keyDownCount
         // Secure Event Input held by another app hides keystrokes from the
         // tap entirely; logging it here lets support spot it next to a miss.
-        Log.debug("retroactive scheduled: anchor=\(target.anchor != nil) coreOnly=\(target.coreOnly) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
+        Log.debug("retroactive scheduled: anchor=\(target.anchor != nil) narrowed=\(target.narrowed) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
                 word: target.word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
@@ -591,27 +591,40 @@ final class InputMonitor {
     /// app that curls quotes shows `“ghbdtn”`, and captureWordAnchor stops
     /// at “ and ” (they are boundaries there, unlike the straight quote), so
     /// the whole token never matches. When it fails on exactly that — a
-    /// text mismatch, for a token with punctuation around its core — the
-    /// core alone is matched instead and is all that gets replaced
-    /// (`coreOnly`); the AX re-check before the write is unchanged. The
+    /// text mismatch — narrower candidates are tried, in order: the core,
+    /// when the reading has punctuation around it (`“ghbdtn”` → `ghbdtn`);
+    /// then the core without a leading shifted symbol (`“njn`, read as «Э»
+    /// + "njn" but shown with a curly quote → `njn`, «тот» as before
+    /// shifted keys were letters). Only the matched text is replaced
+    /// (`narrowed`); the AX re-check before the write is unchanged. The
     /// carried chain is then dropped by the caller: the quote, not a single
-    /// space, separates it from the core. Keystroke-fallback apps keep the
+    /// space, separates it from the match. Keystroke-fallback apps keep the
     /// whole token: they have no AX text to tell what is on screen, and the
     /// fallback deletes by the token's length.
     private func captureTarget(
         word: String, reading: LanguageDetector.Reading?, wasRussian: Bool,
         variant: TextConverter.RussianKeyboardVariant
-    ) -> (word: String, convertedWord: String?, coreOnly: Bool,
+    ) -> (word: String, convertedWord: String?, narrowed: Bool,
           anchor: TextFieldController.WordAnchor?, failure: TextFieldController.AnchorFailure?) {
         let (captured, failure) = captureAnchor(matching: word, variant: variant)
         let whole = reading.map { $0.prefix + convert($0.core, wasRussian: wasRussian, variant: variant) + $0.suffix }
-        guard captured == nil, let reading, !(reading.prefix.isEmpty && reading.suffix.isEmpty),
-              case .textMismatch = failure, !keystrokeSimulator.usesKeystrokeFallback,
-              let coreAnchor = captureAnchor(matching: reading.core, variant: variant).anchor else {
+        guard captured == nil, let reading, case .textMismatch = failure,
+              !keystrokeSimulator.usesKeystrokeFallback else {
             return (word, whole, false, captured, failure)
         }
-        Log.debug("anchor: matched the core only (punctuation on screen differs, e.g. smart quotes)")
-        return (reading.core, convert(reading.core, wasRussian: wasRussian, variant: variant), true, coreAnchor, nil)
+        var candidates: [String] = []
+        if !(reading.prefix.isEmpty && reading.suffix.isEmpty) { candidates.append(reading.core) }
+        if reading.core.count > 1, let first = reading.core.first,
+           TextConverter.shiftedLetterSymbols(for: variant).contains(first) {
+            candidates.append(String(reading.core.dropFirst()))
+        }
+        for candidate in candidates {
+            if let anchor = captureAnchor(matching: candidate, variant: variant).anchor {
+                Log.debug("anchor: matched \(candidate == reading.core ? "the core" : "the core without its leading symbol") only (punctuation on screen differs, e.g. smart quotes)")
+                return (candidate, convert(candidate, wasRussian: wasRussian, variant: variant), true, anchor, nil)
+            }
+        }
+        return (word, whole, false, captured, failure)
     }
 
     /// Terminal-only behaviour (leading "/", short commands) applies here:
@@ -689,7 +702,7 @@ final class InputMonitor {
         reading: LanguageDetector.Reading?
     ) -> Bool {
         let target = captureTarget(word: word, reading: reading, wasRussian: wasRussian, variant: variant)
-        let carried = target.coreOnly ? [] : carried
+        let carried = target.narrowed ? [] : carried
         let resolved = resolveCarry(carried, anchor: target.anchor, variant: variant)
         guard applyCorrection(
             word: target.word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
