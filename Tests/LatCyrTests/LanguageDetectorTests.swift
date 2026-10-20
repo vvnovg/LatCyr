@@ -409,6 +409,10 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertEqual(LanguageDetector.reading(of: "\"hello\"", variant: .pc), R(prefix: "\"", core: "hello", suffix: "\""))
         XCTAssertEqual(LanguageDetector.reading(of: "{jhjij", variant: .pc), R(prefix: "", core: "{jhjij", suffix: ""))
         XCTAssertNil(LanguageDetector.reading(of: "\"::", variant: .pc))
+        // Known limitation: "," and "." are unshifted letter keys (б, ю), so
+        // they end the trailing run and the token reads as letters.
+        XCTAssertEqual(LanguageDetector.reading(of: "\"ghbdtn\",", variant: .pc), R(prefix: "", core: "\"ghbdtn\",", suffix: ""))
+        XCTAssertEqual(TextConverter.toCyrillic("\"ghbdtn\",", variant: .pc), "ЭприветЭб")
     }
 
     private func reading(_ token: String, russian: Bool = false, exceptions: Set<String> = [],
