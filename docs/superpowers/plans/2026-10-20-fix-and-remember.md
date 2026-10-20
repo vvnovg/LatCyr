@@ -234,9 +234,9 @@ final class ManualFixTests: XCTestCase {
     }
 
     func testPunctuationKeysThatAreRussianLetters() {
-        // ";" is the ж key, "," and "<" the б key.
+        // ";" is the ж key, "," the б key.
         XCTAssertEqual(ManualFix.plan(for: "ckj;yj", variant: .pc)?.replacement, "сложно")
-        XCTAssertEqual(ManualFix.plan(for: "<s", variant: .pc)?.replacement, "Бы")
+        XCTAssertEqual(ManualFix.plan(for: ",s", variant: .pc)?.replacement, "бы")
     }
 
     func testCyrillicTypedEnglishWordBecomesLatin() {
