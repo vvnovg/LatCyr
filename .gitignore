@@ -1,3 +1,8 @@
 .build/
 dist/
 .swiftpm/
+
+# Habr article draft and its images (kept local)
+docs/habr-draft.md
+docs/habr-gifs/
+.DS_Store
