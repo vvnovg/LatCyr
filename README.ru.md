@@ -83,7 +83,7 @@ swift run LatCyr
 запуска.
 
 ```bash
-./scripts/package-app.sh   # release-сборка + упаковка в dist/LatCyr.app (ad-hoc подпись)
+./scripts/package-app.sh   # release-сборка + упаковка в dist/LatCyr.app (Developer ID, если сертификат есть в связке ключей, иначе ad-hoc)
 open dist/LatCyr.app
 ```
 
@@ -91,9 +91,10 @@ open dist/LatCyr.app
 Privacy & Security (Accessibility и Input Monitoring) и перезапустите
 приложение.
 
-> Повторный запуск `package-app.sh` переподписывает бандл, что меняет его
-> code hash и сбрасывает уже выданные разрешения — после переупаковки нужно
-> выдать их заново.
+> С подписью Developer ID разрешения переживают переупаковку. Без сертификата
+> бандл подписывается ad-hoc: тогда повторный запуск `package-app.sh` меняет
+> его code hash и сбрасывает уже выданные разрешения — после переупаковки
+> нужно выдать их заново.
 
 ## Автозапуск при входе в систему
 

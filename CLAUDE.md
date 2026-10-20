@@ -14,15 +14,15 @@ swift test                           # все тесты
 swift test --filter TextConverterTests   # один тестовый класс
 swift test --filter LanguageDetectorTests/testRussianTypedInEnglishLayout  # один тест
 swift run LatCyr                     # запуск из терминала (см. про разрешения ниже)
-./scripts/package-app.sh             # release-сборка + упаковка в dist/LatCyr.app (ad-hoc подпись)
-./scripts/release.sh                 # выпуск версии из VERSION: тесты, упаковка, тег v<версия>, GitHub-релиз с секцией CHANGELOG
+./scripts/package-app.sh             # release-сборка + упаковка в dist/LatCyr.app (Developer ID, без сертификата — ad-hoc)
+./scripts/release.sh                 # выпуск версии из VERSION: тесты, упаковка, нотаризация, тег v<версия>, GitHub-релиз с секцией CHANGELOG
 open dist/LatCyr.app                 # запуск собранного .app
 # замер детектора (подробно — docs/superpowers/specs/2026-10-13-bigram-scoring-design.md, §5)
 swiftc -O -o .build/eval/eval-detector Sources/LatCyr/LanguageDetector.swift Sources/LatCyr/TextConverter.swift Sources/LatCyr/BigramModel.swift Sources/LatCyr/BigramTables.swift scripts/eval-detector/main.swift
 .build/eval/eval-detector words ru ашду     # решение и LLR для отдельных слов
 ```
 
-**Разрешения (TCC):** при запуске через `swift run` macOS приписывает запрос разрешений терминалу, а не бинарнику LatCyr — выдача разрешения бинарнику может не сработать. Для надёжной работы нужно упаковать `.app` (`./scripts/package-app.sh`) и выдать Accessibility + Input Monitoring именно `dist/LatCyr.app` в System Settings → Privacy & Security. Повторный запуск `package-app.sh` переподписывает бандл, меняет его code hash и **сбрасывает уже выданные разрешения** — после переупаковки их нужно выдавать заново.
+**Разрешения (TCC):** при запуске через `swift run` macOS приписывает запрос разрешений терминалу, а не бинарнику LatCyr — выдача разрешения бинарнику может не сработать. Для надёжной работы нужно упаковать `.app` (`./scripts/package-app.sh`) и выдать Accessibility + Input Monitoring именно `dist/LatCyr.app` в System Settings → Privacy & Security. **Подпись:** `package-app.sh` подписывает сертификатом `Developer ID Application: … (JHWW538CH9)` из связки ключей (hardened runtime + timestamp, entitlements не нужны), designated requirement — Team ID + bundle ID, поэтому переупаковка разрешения **не сбрасывает**; менять `CFBundleIdentifier` нельзя — это сбросит их у всех пользователей. Без сертификата — откат на ad-hoc: requirement тогда — code hash, и каждая переупаковка **сбрасывает уже выданные разрешения**. `release.sh` требует Developer ID и нотаризует сборку через профиль связки ключей `latcyr-notary` (`notarytool submit --wait`, затем `stapler staple`; профиль создаётся один раз `xcrun notarytool store-credentials`).
 
 ## Архитектура
 

@@ -5,8 +5,13 @@
 #
 # Refuses unless: the tree is clean, the branch is main and pushed, the tag
 # v<VERSION> doesn't exist yet, and CHANGELOG.md has a "## [<VERSION>]"
-# section. Then runs the tests, packages the app, zips it, tags the commit,
+# section. Then runs the tests, packages the app (Developer ID signature is
+# required), notarizes it and staples the ticket, zips it, tags the commit,
 # pushes the tag and creates the release with that CHANGELOG section as notes.
+#
+# Notarization uses the keychain profile latcyr-notary (NOTARY_PROFILE
+# overrides), created once with:
+#   xcrun notarytool store-credentials latcyr-notary --apple-id <id> --team-id JHWW538CH9
 #
 # To release: bump VERSION, add the CHANGELOG section, commit, push, run this.
 set -euo pipefail
@@ -27,8 +32,23 @@ git fetch --quiet origin main
 NOTES="$(awk -v v="## [$VERSION]" 'index($0, v) == 1 {on=1; next} on && /^## / {exit} on {print}' CHANGELOG.md)"
 [[ -n "${NOTES//[[:space:]]/}" ]] || fail "CHANGELOG.md has no section for $VERSION"
 
+NOTARY_PROFILE="${NOTARY_PROFILE:-latcyr-notary}"
+
 swift test
 ./scripts/package-app.sh
+codesign -dvv dist/LatCyr.app 2>&1 | grep "^Authority=Developer ID Application" >/dev/null \
+    || fail "dist/LatCyr.app is not signed with Developer ID (certificate missing from the keychain?)"
+
+# notarytool takes a zip; the stapled ticket goes into the .app, so the zip
+# that ships is made again afterwards.
+rm -f dist/LatCyr.zip
+ditto -c -k --keepParent dist/LatCyr.app dist/LatCyr.zip
+NOTARY_OUT="$(xcrun notarytool submit dist/LatCyr.zip --keychain-profile "$NOTARY_PROFILE" --wait)"
+echo "$NOTARY_OUT"
+grep -q "status: Accepted" <<<"$NOTARY_OUT" \
+    || fail "notarization was not accepted (details: xcrun notarytool log <id> --keychain-profile $NOTARY_PROFILE)"
+xcrun stapler staple dist/LatCyr.app
+spctl --assess --type execute dist/LatCyr.app || fail "Gatekeeper rejects the notarized app"
 rm -f dist/LatCyr.zip
 ditto -c -k --keepParent dist/LatCyr.app dist/LatCyr.zip
 
@@ -37,9 +57,8 @@ trap 'rm -f "$NOTES_FILE"' EXIT
 cat > "$NOTES_FILE" <<MD
 ## Установка
 1. Скачай \`LatCyr.zip\`, распакуй, перемести \`LatCyr.app\` в «Программы».
-2. Открой через правый клик → Open (ad-hoc подпись, Gatekeeper). Если Mac пишет «файл повреждён» — \`xattr -cr LatCyr.app\`.
-3. Выдай разрешения **Accessibility** и **Input Monitoring** в System Settings → Privacy & Security. При обновлении сначала удали LatCyr из обоих списков и добавь заново: у новой сборки другая подпись.
-4. Перезапусти приложение.
+2. Открой LatCyr (сборка подписана Developer ID и нотаризована Apple).
+3. Выдай разрешения **Accessibility** и **Input Monitoring** в System Settings → Privacy & Security и перезапусти приложение. При обновлении с версии, подписанной Developer ID, разрешения сохраняются; при обновлении с 0.3.1 и старше (ad-hoc подпись) удали LatCyr из обоих списков и добавь заново.
 $NOTES
 MD
 

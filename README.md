@@ -64,15 +64,17 @@ A bundled app has its own TCC identity, so permissions apply to LatCyr.app
 itself and work regardless of how it is launched.
 
 ```bash
-./scripts/package-app.sh   # builds release + packages dist/LatCyr.app (ad-hoc signed)
+./scripts/package-app.sh   # builds release + packages dist/LatCyr.app (Developer ID if the certificate is in the keychain, else ad-hoc)
 open dist/LatCyr.app
 ```
 
 Then grant both permissions to `dist/LatCyr.app` in System Settings →
 Privacy & Security (Accessibility and Input Monitoring), and relaunch.
 
-> Re-running `package-app.sh` re-signs the bundle, which changes its code hash
-> and drops already-granted permissions — re-grant after re-packaging.
+> With a Developer ID signature, permissions survive re-packaging. Without the
+> certificate the bundle is signed ad-hoc: then re-running `package-app.sh`
+> changes its code hash and drops already-granted permissions — re-grant after
+> re-packaging.
 
 ## Launch at login
 

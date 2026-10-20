@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds LatCyr as a proper .app bundle with ad-hoc code signature.
+# Builds LatCyr as a proper .app bundle, signed with Developer ID when the
+# certificate is in the keychain, ad-hoc otherwise.
 # A bundled app gets its own TCC identity, so Accessibility and Input
 # Monitoring permissions apply to LatCyr.app itself (not the terminal).
 #
@@ -10,9 +11,13 @@
 # CFBundleVersion (the build number) from the commit count — it only grows,
 # and two builds of different commits never share one.
 #
-# Note: re-running this re-signs the bundle, which changes its code hash and
-# drops any TCC permissions already granted. Grant permissions to the final
-# bundle and do not re-package unless you re-grant.
+# Signing: SIGN_IDENTITY overrides the identity. By default the script uses
+# "Developer ID Application: … (JHWW538CH9)" if it is in the keychain, with the
+# hardened runtime and a secure timestamp (both required for notarization).
+# A Developer ID signature's designated requirement is the team + bundle ID,
+# so TCC permissions survive re-packaging. Without the certificate it falls
+# back to an ad-hoc signature, whose requirement is the code hash: then every
+# re-package drops the TCC permissions already granted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -59,5 +64,17 @@ cat > "$DIST/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$DIST"
-echo "Packaged: $DIST ($VERSION, build $BUILD)"
+TEAM_ID="JHWW538CH9"
+SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
+    | sed -n "s/.*\"\(Developer ID Application: .* (${TEAM_ID})\)\".*/\1/p" | head -n 1)}"
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$DIST"
+    SIGNED_WITH="$SIGN_IDENTITY"
+else
+    echo "package-app: no Developer ID certificate, signing ad-hoc" >&2
+    codesign --force --sign - "$DIST"
+    SIGNED_WITH="ad-hoc"
+fi
+codesign --verify --strict "$DIST"
+echo "Packaged: $DIST ($VERSION, build $BUILD, $SIGNED_WITH)"
