@@ -595,7 +595,9 @@ final class InputMonitor {
     /// when the reading has punctuation around it (`“ghbdtn”` → `ghbdtn`);
     /// then the core without a leading shifted symbol (`“njn`, read as «Э»
     /// + "njn" but shown with a curly quote → `njn`, «тот» as before
-    /// shifted keys were letters). A candidate must itself be a
+    /// shifted keys were letters); each also with the suffix kept as typed,
+    /// for a straight shifted suffix that stays in the screen word
+    /// (`“ghbdtn:` → «привет:»). A candidate must itself be a
     /// wrong-layout word (isWrongLayout): `“nj` is left alone, since only
     /// the token `"nj` was judged («это»). Only the matched text is replaced
     /// (`narrowed`); the AX re-check before the write is unchanged. The
@@ -614,22 +616,36 @@ final class InputMonitor {
               !keystrokeSimulator.usesKeystrokeFallback else {
             return (word, whole, false, captured, failure)
         }
-        var candidates: [String] = []
-        if !(reading.prefix.isEmpty && reading.suffix.isEmpty) { candidates.append(reading.core) }
+        // A candidate is a part to convert plus a suffix kept as typed;
+        // it is matched against the screen as `part + suffix`. The screen
+        // holds one word before the cursor, so at most one candidate can
+        // match and the order only decides which AX reads happen first:
+        // the plain parts cover a curly closer, which is a boundary on
+        // screen (`“ghbdtn”` → ghbdtn); the suffixed ones a straight
+        // shifted suffix, which is not (`“ghbdtn:` → ghbdtn:). A suffixed
+        // candidate equal to the whole token was already tried above.
+        var parts: [String] = []
+        if !(reading.prefix.isEmpty && reading.suffix.isEmpty) { parts.append(reading.core) }
         if reading.core.count > 1, let first = reading.core.first,
            TextConverter.shiftedLetterSymbols(for: variant).contains(first) {
-            candidates.append(String(reading.core.dropFirst()))
+            parts.append(String(reading.core.dropFirst()))
+        }
+        var candidates = parts.map { (part: $0, suffix: "") }
+        if !reading.suffix.isEmpty {
+            candidates += parts.map { (part: $0, suffix: reading.suffix) }.filter { $0.part + $0.suffix != word }
         }
         // The token's verdict doesn't carry over: "\"nj" is wrong only via
-        // the «это» exception, while "nj" (→ «то») was never judged. Pure
-        // check first, the AX read only for a candidate that passes it.
+        // the «это» exception, while "nj" (→ «то») was never judged. Only
+        // the converted part is judged, never the kept suffix. Pure check
+        // first, the AX read only for a candidate that passes it.
         for candidate in candidates where LanguageDetector.isWrongLayout(
-            word: candidate, currentLayoutIsRussian: wasRussian,
+            word: candidate.part, currentLayoutIsRussian: wasRussian,
             exceptions: exceptionStore.words, variant: variant
         ) {
-            if let anchor = captureAnchor(matching: candidate, variant: variant).anchor {
-                Log.debug("anchor: matched \(candidate == reading.core ? "the core" : "the core without its leading symbol") only (punctuation on screen differs, e.g. smart quotes)")
-                return (candidate, convert(candidate, wasRussian: wasRussian, variant: variant), true, anchor, nil)
+            let text = candidate.part + candidate.suffix
+            if let anchor = captureAnchor(matching: text, variant: variant).anchor {
+                Log.debug("anchor: matched \(candidate.part == reading.core ? "the core" : "the core without its leading symbol")\(candidate.suffix.isEmpty ? "" : " with its suffix") only (punctuation on screen differs, e.g. smart quotes)")
+                return (text, convert(candidate.part, wasRussian: wasRussian, variant: variant) + candidate.suffix, true, anchor, nil)
             }
         }
         return (word, whole, false, captured, failure)
