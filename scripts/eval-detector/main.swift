@@ -20,6 +20,8 @@ import AppKit
 //   curve <data> <baseline-metrics.tsv>  threshold grid, one TSV line per combination
 //   words <ru|en> <word>...              decision and LLR per word as typed; ru/en = active layout
 //   flagged <ru|en> <list.txt>           words of the list flagged as typed (false-positive dump)
+//   wrapped <en_holdout.txt>             English words W wrapped in shifted letter keys ("W", W:, {W, {"W …),
+//                                        typed in the EN layout (.pc): false positives per form, with examples
 //   build-ru-dict <out.txt>              set D: Russian words from NSSpellChecker completions
 
 typealias Variant = TextConverter.RussianKeyboardVariant
@@ -256,6 +258,24 @@ func flagged(russianActive: Bool, path: String) {
     }
 }
 
+/// Shifted letter keys around correct English words: each form is what the
+/// user types, in the English layout, around a word that must be left alone
+/// (shifted-letter-keys spec, «Результаты замера»).
+func wrapped(path: String) {
+    let latin = Set("abcdefghijklmnopqrstuvwxyz")
+    let list = readWords(path).filter { $0.allSatisfy { latin.contains($0) } }
+    let forms: [(String, (String) -> String)] = [
+        ("W", { $0 }), ("\"W", { "\"" + $0 }), ("\"W\"", { "\"" + $0 + "\"" }), ("W:", { $0 + ":" }),
+        ("{W", { "{" + $0 }), ("<W", { "<" + $0 }), (":W", { ":" + $0 }), ("{\"W", { "{\"" + $0 }),
+    ]
+    print("form\tflagged\ttotal\tpercent\texamples")
+    for (name, wrap) in forms {
+        let hits = list.map(wrap).filter { detector($0, false, .pc) }
+        let percent = String(format: "%.2f", 100 * Double(hits.count) / Double(list.count))
+        print("\(name)\t\(hits.count)\t\(list.count)\t\(percent)%\t\(hits.prefix(8).joined(separator: " "))")
+    }
+}
+
 func buildRussianDictionary(out: String) {
     let alphabet = Array("абвгдежзийклмнопрстуфхцчшщъыьэюя")
     let cyrillic = Set(alphabet + ["ё"])
@@ -285,6 +305,8 @@ case "words" where args.count >= 4:
     words(russianActive: activeLayout(args[2]), Array(args[3...]))
 case "flagged" where args.count == 4:
     flagged(russianActive: activeLayout(args[2]), path: args[3])
+case "wrapped" where args.count == 3:
+    wrapped(path: args[2])
 case "build-ru-dict" where args.count == 3:
     buildRussianDictionary(out: args[2])
 default:
