@@ -6,7 +6,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let permissionManager = PermissionManager()
     let logController = LogController()
     private let textFieldController = TextFieldController()
-    private let clipboardReader = ClipboardReader()
 
     private var statusItem: NSStatusItem?
     private var enabled = false
@@ -52,6 +51,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(toggleItem)
 
         menu.addItem(.separator())
+
+        let fixItem = NSMenuItem(
+            title: "Исправить выделенное и запомнить (⇧⇧)",
+            action: #selector(fixAndRemember),
+            keyEquivalent: ""
+        )
+        fixItem.target = self
+        menu.addItem(fixItem)
 
         let addExceptionItem = NSMenuItem(
             title: "Добавить выделенное в исключения",
@@ -160,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // AX-выделения нет — типично для терминалов и Electron-приложений.
         // Спрашиваем само приложение, синтетическим Cmd+C.
-        clipboardReader.copySelection { [weak self] copied in
+        inputMonitor.clipboardReader.copySelection { [weak self] copied in
             guard let self else { return }
             guard let copied else {
                 self.showAlert(message: "Не удалось получить выделенный текст. Проверьте, что слово выделено.")
@@ -183,6 +190,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showAlert(message: "Добавлено в исключения: \(word)")
         } else {
             showAlert(message: "Уже в списке исключений: \(word)")
+        }
+    }
+
+    @objc private func fixAndRemember() {
+        inputMonitor.fixAndRemember { [weak self] outcome in
+            switch outcome {
+            case .fixed(let exception):
+                self?.showAlert(message: "Исправлено и запомнено: \(exception)")
+            case .nothingToFix:
+                self?.showAlert(message: "Выделите слово, набранное не в той раскладке.")
+            case .invalidWord:
+                self?.showAlert(message: "Выделите одно слово на одном языке — русском или английском.")
+            case .refused, .failed:
+                self?.showAlert(message: "Не удалось исправить здесь. В терминалах и некоторых приложениях это не поддерживается.")
+            }
         }
     }
 
