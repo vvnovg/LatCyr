@@ -595,7 +595,9 @@ final class InputMonitor {
     /// when the reading has punctuation around it (`“ghbdtn”` → `ghbdtn`);
     /// then the core without a leading shifted symbol (`“njn`, read as «Э»
     /// + "njn" but shown with a curly quote → `njn`, «тот» as before
-    /// shifted keys were letters). Only the matched text is replaced
+    /// shifted keys were letters). A candidate must itself be a
+    /// wrong-layout word (isWrongLayout): `“nj` is left alone, since only
+    /// the token `"nj` was judged («это»). Only the matched text is replaced
     /// (`narrowed`); the AX re-check before the write is unchanged. The
     /// carried chain is then dropped by the caller: the quote, not a single
     /// space, separates it from the match. Keystroke-fallback apps keep the
@@ -618,7 +620,13 @@ final class InputMonitor {
            TextConverter.shiftedLetterSymbols(for: variant).contains(first) {
             candidates.append(String(reading.core.dropFirst()))
         }
-        for candidate in candidates {
+        // The token's verdict doesn't carry over: "\"nj" is wrong only via
+        // the «это» exception, while "nj" (→ «то») was never judged. Pure
+        // check first, the AX read only for a candidate that passes it.
+        for candidate in candidates where LanguageDetector.isWrongLayout(
+            word: candidate, currentLayoutIsRussian: wasRussian,
+            exceptions: exceptionStore.words, variant: variant
+        ) {
             if let anchor = captureAnchor(matching: candidate, variant: variant).anchor {
                 Log.debug("anchor: matched \(candidate == reading.core ? "the core" : "the core without its leading symbol") only (punctuation on screen differs, e.g. smart quotes)")
                 return (candidate, convert(candidate, wasRussian: wasRussian, variant: variant), true, anchor, nil)
