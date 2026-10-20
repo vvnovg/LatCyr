@@ -266,6 +266,18 @@ final class InputMonitor {
             if case .keystroke = pendingFix { pendingFix = nil }
             if !carry.isEmpty { Log.debug("carry reset: mouse down (carry \(carry.count))") }
             breakChain()
+            // A click mid-word moves the caret away from the buffered
+            // letters: what is typed next may be the tail of a token already
+            // on screen, so the next buffer is a fragment (kept out of carry,
+            // previousWord and terminal commands until a real boundary).
+            // With an empty buffer the flag stays as it was — marking it
+            // would disable e.g. «св»→cd for the first command after
+            // clicking into a terminal.
+            if !currentWord.isEmpty {
+                Log.debug("buffer reset: mouse down mid-word (word \(Sensitive(currentWord)))")
+                currentWord = ""
+                currentWordIsFragment = true
+            }
             _ = doubleShift.feed(.otherKey, at: Self.seconds(event))
             return false
         }
