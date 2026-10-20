@@ -214,8 +214,9 @@ final class TextFieldController {
     }
 
     /// The non-empty selection in the focused field, with its range. nil for
-    /// no selection, a secure or own field, or an app whose visible text is
-    /// not a real AX value (terminals, hybrid apps).
+    /// no selection or a secure or own field. Nothing here detects apps whose
+    /// visible text is not a real AX value (terminals, hybrid apps) — callers
+    /// must keep those away from it.
     func selectionAnchor() -> (anchor: WordAnchor, text: String)? {
         guard let element = focusedTextElement(), !isOwnApp(element), !isSecure(element),
               let text = text(of: element), let selection = selectedRange(of: element),

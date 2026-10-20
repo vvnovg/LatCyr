@@ -31,9 +31,15 @@ final class ManualFixer {
     }
 
     /// Main queue only. `pending` and `keyDownCount` are InputMonitor's at
-    /// the moment of the request. The password check is the caller's.
-    func run(pending: PendingFix?, keyDownCount: Int, completion: @escaping (Outcome) -> Void) {
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() {
+    /// the moment of the request; `currentKeyDownCount` reads the live count
+    /// (the Cmd+C path types after an asynchronous wait). The password check
+    /// is the caller's.
+    func run(
+        pending: PendingFix?, keyDownCount: Int, currentKeyDownCount: @escaping () -> Int,
+        completion: @escaping (Outcome) -> Void
+    ) {
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if frontmostPID == getpid() {
             return completion(.refused("own app"))
         }
         if textFieldController.isFocusedElementSecure() {
@@ -58,6 +64,14 @@ final class ManualFixer {
             guard let copied, !copied.contains(where: \.isNewline) else { return completion(.nothingToFix) }
             guard let plan = ManualFix.plan(for: copied, variant: self.layoutManager.currentRussianVariant) else {
                 return completion(.invalidWord)
+            }
+            // The copy took a while: typing goes to whatever has focus now,
+            // so only into the same app, a non-secure field, and only if the
+            // user hasn't typed since (the selection would be gone).
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmostPID,
+                  !self.textFieldController.isFocusedElementSecure(),
+                  currentKeyDownCount() == keyDownCount else {
+                return completion(.refused("context changed"))
             }
             // Typing over a selection replaces it — nothing to delete.
             guard self.keystrokeSimulator.correct(deleting: 0, typing: plan.replacement) else {
