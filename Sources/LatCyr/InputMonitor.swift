@@ -16,6 +16,13 @@ final class InputMonitor {
     let exceptionStore = ExceptionStore()
     /// Same reasoning as exceptionStore.
     let hybridAppStore = HybridAppStore()
+    /// One instance for the whole app: its re-entry guard only works per
+    /// instance. AppDelegate's "add selection to exceptions" uses it too.
+    let clipboardReader = ClipboardReader()
+    private lazy var manualFixer = ManualFixer(
+        textFieldController: textFieldController, keystrokeSimulator: keystrokeSimulator,
+        clipboardReader: clipboardReader, exceptionStore: exceptionStore, layoutManager: layoutManager
+    )
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -31,6 +38,12 @@ final class InputMonitor {
         keystrokeSimulator = KeystrokeSimulator(hybridAppStore: hybridAppStore)
         exceptionStore.load()
         hybridAppStore.load()
+        onDoubleShift = { [weak self] in
+            self?.fixAndRemember { outcome in
+                if case .fixed = outcome { return }
+                NSSound.beep()
+            }
+        }
     }
 
     // Word buffer state
@@ -435,6 +448,28 @@ final class InputMonitor {
     }
 
     // MARK: - Correction
+
+    /// Fix-and-remember, from double Shift or the menu. Main queue only.
+    func fixAndRemember(completion: @escaping (ManualFixer.Outcome) -> Void) {
+        // A terminal waiting for a password: whatever we'd retype could be it.
+        guard !terminalAwaitsPassword() else {
+            Log.info("fix-and-remember skipped: a terminal awaits a password")
+            return completion(.refused("password prompt"))
+        }
+        manualFixer.run(pending: pendingFix, keyDownCount: keyDownCount) { [weak self] outcome in
+            switch outcome {
+            case .fixed:
+                self?.pendingFix = nil
+            case .nothingToFix:
+                Log.info("fix-and-remember: nothing selected and no candidate")
+            case .invalidWord:
+                Log.info("fix-and-remember: not one word in one alphabet")
+            case .refused(let reason), .failed(let reason):
+                Log.info("fix-and-remember not applied: \(reason)")
+            }
+            completion(outcome)
+        }
+    }
 
     private func scheduleProactiveCheck() {
         let word = currentWord
