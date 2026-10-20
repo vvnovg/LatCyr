@@ -50,6 +50,9 @@ final class ManualFixer {
             return completion(retype(word: word, tail: tail, variant: variant))
         }
         guard isHybrid else { return completion(.nothingToFix) }
+        // Typing over a selection in an xterm.js pane doesn't replace it —
+        // it would append to the shell prompt. No Cmd+C path in terminals.
+        if textFieldController.isFocusedTerminalEmulator() { return completion(.nothingToFix) }
         clipboardReader.copySelection { [weak self] copied in
             guard let self else { return }
             guard let copied, !copied.contains(where: \.isNewline) else { return completion(.nothingToFix) }
@@ -71,7 +74,19 @@ final class ManualFixer {
             guard let plan = ManualFix.plan(for: selection.text, variant: layoutManager.currentRussianVariant) else {
                 return .invalidWord
             }
-            guard textFieldController.replaceAnchoredWord(selection.anchor, word: selection.text, with: plan.replacement) else {
+            // plan trims surrounding whitespace; shrink the anchor to the
+            // trimmed part so the selection's own whitespace isn't lost.
+            let units = Array(selection.text.utf16)
+            let isSpace: (UInt16) -> Bool = { u in Unicode.Scalar(u).map { CharacterSet.whitespacesAndNewlines.contains($0) } ?? false }
+            let leading = units.prefix(while: isSpace).count
+            let trailing = units.dropFirst(leading).reversed().prefix(while: isSpace).count
+            let trimmedUnits = Array(units[leading..<(units.count - trailing)])
+            guard !trimmedUnits.isEmpty else { return .invalidWord }
+            let trimmed = String(utf16CodeUnits: trimmedUnits, count: trimmedUnits.count)
+            let range = selection.anchor.range
+            let shrunk = TextFieldController.WordAnchor(
+                element: selection.anchor.element, range: (range.lowerBound + leading)..<(range.upperBound - trailing))
+            guard textFieldController.replaceAnchoredWord(shrunk, word: trimmed, with: plan.replacement) else {
                 return .failed("AX replace rejected or not applied")
             }
             return remember(plan, path: "selection-ax")

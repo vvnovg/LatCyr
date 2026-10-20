@@ -91,6 +91,7 @@ final class InputMonitor {
     func start() {
         guard !isRunning else { return }
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+            | CGEventMask(1 << CGEventType.leftMouseDown.rawValue) | CGEventMask(1 << CGEventType.rightMouseDown.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -251,6 +252,15 @@ final class InputMonitor {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Log.error("event tap disabled by system (\(type == .tapDisabledByTimeout ? "timeout" : "user input")), re-enabling")
             if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return false
+        }
+        if type == .leftMouseDown || type == .rightMouseDown {
+            // A click can move the caret or change focus inside the same app
+            // without a keyDown or an app activation, so keyDownCount alone
+            // can't prove what is on screen after the correction. Drop the
+            // blind keystroke candidate; .anchored is re-verified against
+            // live text before any write. O(1), mouse events never swallowed.
+            if case .keystroke = pendingFix { pendingFix = nil }
             return false
         }
         if type == .flagsChanged {
