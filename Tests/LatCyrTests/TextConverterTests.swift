@@ -112,10 +112,26 @@ final class TextConverterTests: XCTestCase {
     }
 
     func testLowercasePunctuationPairsUnchanged() {
-        XCTAssertEqual(TextConverter.toLatin("б", variant: .pc), ",")
-        XCTAssertEqual(TextConverter.toLatin("Б", variant: .pc), "<")
-        XCTAssertEqual(TextConverter.toCyrillic(",", variant: .pc), "б")
-        XCTAssertEqual(TextConverter.toCyrillic("<", variant: .pc), "Б")
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            XCTAssertEqual(TextConverter.toLatin("б", variant: variant), ",", "\(variant)")
+            XCTAssertEqual(TextConverter.toLatin("Б", variant: variant), "<", "\(variant)")
+            XCTAssertEqual(TextConverter.toCyrillic(",", variant: variant), "б", "\(variant)")
+            XCTAssertEqual(TextConverter.toCyrillic("<", variant: variant), "Б", "\(variant)")
+        }
+    }
+
+    // Ё sits on the shifted key of each variant's ё key, alongside the new
+    // pairs; both cases survive a round trip.
+    func testYoOnItsShiftedKeyRoundTripsPerVariant() {
+        let cases: [(TextConverter.RussianKeyboardVariant, String, String)] = [
+            (.pc, "~", "`"), (.apple, "|", "\\"),
+        ]
+        for (variant, shifted, plain) in cases {
+            XCTAssertEqual(TextConverter.toLatin(TextConverter.toCyrillic(shifted, variant: variant), variant: variant), shifted, "\(variant)")
+            XCTAssertEqual(TextConverter.toCyrillic(TextConverter.toLatin("Ё", variant: variant), variant: variant), "Ё", "\(variant)")
+            XCTAssertEqual(TextConverter.toLatin("ё", variant: variant), plain, "\(variant)")
+            XCTAssertEqual(TextConverter.toCyrillic("\(shifted)<\(plain)", variant: variant), "ЁБё", "\(variant)")
+        }
     }
 
     func testShiftedWordsBothDirections() {
