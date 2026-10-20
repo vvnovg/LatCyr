@@ -252,6 +252,12 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "j,", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
+    // A shifted key converts to a capital ("<s" → «Бы»); the list is
+    // lowercase, as is the exception comparison in isWrongLayout.
+    func testCarriableWordWithShiftedCapital() {
+        XCTAssertTrue(LanguageDetector.isCarriableFunctionWord(word: "<s", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+    }
+
     // A user exception beats the list, exactly as it beats the score
     // heuristic in isWrongLayout.
     func testExceptionOverridesCarry() {
@@ -394,6 +400,16 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // MARK: - wrongLayoutReading (shifted letter keys)
+
+    // The split alone, with no wrong-layout judgement: shared with
+    // fix-and-remember (ManualFix).
+    func testReadingSplitsWithoutJudging() {
+        typealias R = LanguageDetector.Reading
+        XCTAssertEqual(LanguageDetector.reading(of: "hello:", variant: .pc), R(prefix: "", core: "hello", suffix: ":"))
+        XCTAssertEqual(LanguageDetector.reading(of: "\"hello\"", variant: .pc), R(prefix: "\"", core: "hello", suffix: "\""))
+        XCTAssertEqual(LanguageDetector.reading(of: "{jhjij", variant: .pc), R(prefix: "", core: "{jhjij", suffix: ""))
+        XCTAssertNil(LanguageDetector.reading(of: "\"::", variant: .pc))
+    }
 
     private func reading(_ token: String, russian: Bool = false, exceptions: Set<String> = [],
                          variant: TextConverter.RussianKeyboardVariant = .pc) -> LanguageDetector.Reading? {

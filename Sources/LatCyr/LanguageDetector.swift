@@ -163,7 +163,21 @@ public enum LanguageDetector {
     /// Opening shifted symbols and the closer that makes them a pair.
     private static let wrappingPairs: [Character: Character] = ["\"": "\"", "{": "}", "<": ">"]
 
-    /// The reading of `token` if it is a wrong-layout word, or nil.
+    /// The reading of `token` if it is a wrong-layout word, or nil: the
+    /// split of `reading(of:variant:)`, judged by `isWrongLayout` on its core.
+    public static func wrongLayoutReading(
+        token: String, currentLayoutIsRussian: Bool,
+        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
+    ) -> Reading? {
+        guard let reading = reading(of: token, variant: variant) else { return nil }
+        return isWrongLayout(word: reading.core, currentLayoutIsRussian: currentLayoutIsRussian,
+                             exceptions: exceptions, variant: variant) ? reading : nil
+    }
+
+    /// How `token` splits into punctuation and a convertible core, without
+    /// judging whether it is a wrong-layout word; nil only when nothing but
+    /// shifted symbols is left. Shared by detection and fix-and-remember
+    /// (ManualFix), so both convert the same part of a token.
     ///
     /// The Shift layer of the letter keys (TextConverter.shiftedLetterSymbols:
     /// "<" Б, ":" Ж, "\"" Э …) is read by position, not by score. A trailing
@@ -175,10 +189,7 @@ public enum LanguageDetector {
     /// not work: the mean per letter pair favours the word without its first
     /// letter ("{орошо" over «Хорошо», "\"тот" over «Этот»). In the middle a
     /// symbol stays a letter, like ";" in "ckj;yj" («сложно»).
-    public static func wrongLayoutReading(
-        token: String, currentLayoutIsRussian: Bool,
-        exceptions: Set<String>, variant: TextConverter.RussianKeyboardVariant
-    ) -> Reading? {
+    public static func reading(of token: String, variant: TextConverter.RussianKeyboardVariant) -> Reading? {
         let shifted = TextConverter.shiftedLetterSymbols(for: variant)
         var body = Substring(token)
         var suffixStart = body.endIndex
@@ -195,9 +206,7 @@ public enum LanguageDetector {
             prefix = String(first)
             body = body.dropFirst()
         }
-        let reading = Reading(prefix: prefix, core: String(body), suffix: suffix)
-        return isWrongLayout(word: reading.core, currentLayoutIsRussian: currentLayoutIsRussian,
-                             exceptions: exceptions, variant: variant) ? reading : nil
+        return Reading(prefix: prefix, core: String(body), suffix: suffix)
     }
 
     /// The score half of `isWrongLayout` on its own: how much more plausible
@@ -345,9 +354,11 @@ public enum LanguageDetector {
         guard !exceptions.contains(lower) else { return false }
 
         // Check against the function word list for the target language
-        let converted = currentLayoutIsRussian ?
+        // Lowercased, as in isWrongLayout: the shifted keys convert to
+        // capitals ("<s" → «Бы»).
+        let converted = (currentLayoutIsRussian ?
             TextConverter.toLatin(lower, variant: variant) :
-            TextConverter.toCyrillic(lower, variant: variant)
+            TextConverter.toCyrillic(lower, variant: variant)).lowercased()
 
         if currentLayoutIsRussian {
             // User typed in Russian, target is English

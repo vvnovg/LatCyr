@@ -48,4 +48,22 @@ final class ManualFixTests: XCTestCase {
         XCTAssertNil(ManualFix.plan(for: "", variant: .pc))
         XCTAssertNil(ManualFix.plan(for: "  ", variant: .pc))
     }
+
+    // MARK: - Shifted letter keys: the detector's split
+
+    func testTrailingShiftedSymbolStaysPunctuation() {
+        XCTAssertEqual(ManualFix.plan(for: "ntrcn:", variant: .pc), .init(replacement: "текст:", exception: "текст"))
+    }
+
+    func testWrappingQuotesStayPunctuation() {
+        XCTAssertEqual(ManualFix.plan(for: "\"vjq\"", variant: .pc), .init(replacement: "\"мой\"", exception: "мой"))
+    }
+
+    func testLeadingShiftedSymbolIsCapitalLetter() {
+        XCTAssertEqual(ManualFix.plan(for: "{jhjij", variant: .pc), .init(replacement: "Хорошо", exception: "хорошо"))
+    }
+
+    func testOnlyShiftedSymbolsIsRejected() {
+        XCTAssertNil(ManualFix.plan(for: "\"::", variant: .pc))
+    }
 }

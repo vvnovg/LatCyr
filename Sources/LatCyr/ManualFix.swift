@@ -15,31 +15,38 @@ enum ManualFix {
 
     /// nil when `text` is not one word in one alphabet.
     ///
+    /// The word is split exactly as the detector splits it
+    /// (LanguageDetector.reading): a trailing run of shifted symbols and a
+    /// wrapping opener are punctuation, kept as typed — "ntrcn:" becomes
+    /// «текст:», not «текстЖ», and remembers «текст».
+    ///
     /// The source is not validated with ExceptionWord: a Russian word typed
     /// in the English layout legitimately contains punctuation keys (";" is
     /// "ж", "," is "б"). The *result* is — it must be a clean word in the
     /// other alphabet.
     static func plan(for text: String, variant: TextConverter.RussianKeyboardVariant) -> Plan? {
         let source = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty, !source.contains(where: \.isWhitespace) else { return nil }
-        let cyrillicCount = source.unicodeScalars.filter(isCyrillicLetter).count
+        guard !source.isEmpty, !source.contains(where: \.isWhitespace),
+              let reading = LanguageDetector.reading(of: source, variant: variant) else { return nil }
+        let core = reading.core
+        let cyrillicCount = core.unicodeScalars.filter(isCyrillicLetter).count
         let toLatin: Bool
-        if cyrillicCount == source.unicodeScalars.count {
+        if cyrillicCount == core.unicodeScalars.count {
             toLatin = true
         } else if cyrillicCount == 0 {
             toLatin = false
         } else {
             return nil
         }
-        let replacement = toLatin
-            ? TextConverter.toLatin(source, variant: variant)
-            : TextConverter.toCyrillic(source, variant: variant)
-        guard let exception = ExceptionWord.normalized(from: replacement) else { return nil }
+        let converted = toLatin
+            ? TextConverter.toLatin(core, variant: variant)
+            : TextConverter.toCyrillic(core, variant: variant)
+        guard let exception = ExceptionWord.normalized(from: converted) else { return nil }
         // The result must have changed alphabet: a Latin source whose
         // conversion is still Latin (digits, unmapped symbols) is no fix.
         let resultIsCyrillic = exception.unicodeScalars.allSatisfy(isCyrillicLetter)
         guard resultIsCyrillic != toLatin else { return nil }
-        return Plan(replacement: replacement, exception: exception)
+        return Plan(replacement: reading.prefix + converted + reading.suffix, exception: exception)
     }
 
     private static func isCyrillicLetter(_ scalar: Unicode.Scalar) -> Bool {
