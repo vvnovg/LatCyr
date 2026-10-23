@@ -71,9 +71,47 @@ public enum LanguageDetector {
     }
 
     /// How English-looking a Latin word is, on the same scale as `russianScore`.
+    ///
+    /// The punctuation keys are Russian letters under the English layout
+    /// (б ю ж э ъ х ё), so a Latin token may carry them — typed as such
+    /// («хуже» as "[e;t"), or as the conversion of a Russian word. The
+    /// model charges the floor for any symbol it is given (see
+    /// BigramModel.averageLogProb); what English spelling puts next to a
+    /// word is removed first, so it costs nothing, exactly as the tables
+    /// built from bare words assume:
+    ///
+    /// - a trailing run of symbols — "the," "file." "x;" "a]" "code`": the
+    ///   everyday ends of English tokens; charging them corrected "the," into
+    ///   «еруб» (5–20% of English words with a comma, a dot or brackets);
+    /// - a leading run except "," and ";" — a quote, "[link", "`code",
+    ///   ".gitignore"; no English token starts with a comma or a semicolon,
+    ///   while Russian words start with б and ж («был» is ",sk");
+    /// - the apostrophe anywhere ("don't", "it's"): the one symbol English
+    ///   uses inside a word, and FrequencyWords splits "don't" into "don"
+    ///   and "'t", so there is no data to score it with.
+    ///
+    /// Everything else inside the word stays and costs the floor: "[e;t"
+    /// («хуже») scores "e;t", not the perfectly English "et" that skipping
+    /// every symbol made of it. The dot inside "amazon.de" is charged the
+    /// same way; domains are caught by looksLikeDomain, not by the score.
     public static func englishScore(_ word: String) -> Double {
-        BigramModel.english.averageLogProb(word)
+        BigramModel.english.averageLogProb(englishSpellingStripped(word))
     }
+
+    /// `word` without the symbols English spelling allows around and
+    /// inside a word — see englishScore.
+    static func englishSpellingStripped(_ word: String) -> String {
+        let chars = Array(word.lowercased())
+        let isLetter: (Character) -> Bool = { $0.isASCII && $0.isLetter }
+        guard let first = chars.firstIndex(where: isLetter), let last = chars.lastIndex(where: isLetter) else { return "" }
+        let leading = chars[..<first].filter { leadingSymbolsCharged.contains($0) }
+        let inner = chars[first...last].filter { $0 != "'" }
+        return String(leading + inner)
+    }
+
+    /// Leading symbols englishScore keeps for the model to charge: no
+    /// English token starts with them.
+    private static let leadingSymbolsCharged: Set<Character> = [",", ";"]
 
     // MARK: - Decisions
 
@@ -89,25 +127,31 @@ public enum LanguageDetector {
     ]
 
     /// Shortest first label accepted as a domain. "клюву" converts to "rk.de",
-    /// a valid-looking domain with a 2-character name; real sites the user
-    /// types by hand are longer. Costs nothing in practice — "t.me" is caught
-    /// by the score anyway (LLR 5.10, well above its threshold).
+    /// a valid-looking domain with a 2-character name, «июля» to "b.kz";
+    /// real sites the user types by hand are longer.
     private static let minDomainLabelLength = 3
+
+    /// Real domains shorter than the label rule allows, by hand. "t.me"
+    /// («еюьу») is not caught by the score either: its dot is charged, and
+    /// LLR 1.48 sits just under the four-letter threshold.
+    private static let knownShortDomains: Set<String> = ["t.me"]
 
     /// Whether the conversion reads as a domain name. Domain names are always
     /// Latin, so this is an unconditional wrong-layout signal — the same
     /// standing as the exception list, and for the same reason: the frequency
     /// heuristic could not see it. "нщгегиуюсщь" converts to "youtube.com",
     /// yet н, е, и, у and с are all high-frequency Russian letters. The
-    /// bigram model now catches such domains on its own (LLR 2.76); the rule
-    /// stays as an unconditional safeguard, like the exceptions, because
-    /// domains are always Latin.
+    /// bigram model charges the dot inside the conversion, so it is barely
+    /// above its threshold here (LLR 1.07); the rule is what catches
+    /// domains, unconditionally, like the exceptions, because domains are
+    /// always Latin.
     ///
     /// The ASCII check does the heavy lifting against false positives: any
     /// Cyrillic in the conversion (i.e. the English→Russian direction, where
     /// a domain reading is meaningless) or any stray punctuation — "боюся"
     /// converts to ",j.cz" — disqualifies the word outright.
     private static func looksLikeDomain(_ converted: String) -> Bool {
+        if knownShortDomains.contains(converted) { return true }
         guard converted.contains(".") else { return false }
         guard converted.allSatisfy({
             $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-")
@@ -136,7 +180,7 @@ public enum LanguageDetector {
         thresholds: LLRThresholds = LanguageDetector.llrThresholds
     ) -> Bool {
         let lower = word.lowercased()
-        guard isScorable(lower, variant: variant) else { return false }
+        guard isScorable(lower, currentLayoutIsRussian: currentLayoutIsRussian, variant: variant) else { return false }
 
         if exceptions.contains(lower) { return false }
 
@@ -220,18 +264,28 @@ public enum LanguageDetector {
         variant: TextConverter.RussianKeyboardVariant
     ) -> Double? {
         let lower = word.lowercased()
-        guard isScorable(lower, variant: variant) else { return nil }
+        guard isScorable(lower, currentLayoutIsRussian: currentLayoutIsRussian, variant: variant) else { return nil }
         let converted = convert(lower, currentLayoutIsRussian: currentLayoutIsRussian, variant: variant)
         return layoutLLR(original: lower, converted: converted, currentLayoutIsRussian: currentLayoutIsRussian)
     }
 
-    private static func isScorable(_ lower: String, variant: TextConverter.RussianKeyboardVariant) -> Bool {
+    /// Whether `lower` is a word the models can judge: long enough, and made
+    /// of letters plus — under the English layout only — the punctuation-key
+    /// symbols that are Russian letters there (ambiguousLetterSymbols). Under
+    /// the Russian layout those keys *type* Russian letters, so a "," or ":"
+    /// that arrives is real punctuation from another key, never part of the
+    /// word: «хуже,» is not a five-character word to be scored against a
+    /// lower threshold than «хуже» (InputMonitor ends the word there too).
+    private static func isScorable(
+        _ lower: String, currentLayoutIsRussian: Bool, variant: TextConverter.RussianKeyboardVariant
+    ) -> Bool {
         // A buffer with no letter (a code fence, an ellipsis) scores the
         // probability floor on the original side, so any conversion looks
         // infinitely better; such buffers are never scorable.
-        lower.count >= minWordLength
+        let symbols = currentLayoutIsRussian ? [] : TextConverter.ambiguousLetterSymbols(for: variant)
+        return lower.count >= minWordLength
             && lower.contains(where: { $0.isLetter })
-            && lower.allSatisfy({ $0.isLetter || TextConverter.ambiguousLetterSymbols(for: variant).contains($0) })
+            && lower.allSatisfy({ $0.isLetter || symbols.contains($0) })
     }
 
     private static func convert(
@@ -246,14 +300,19 @@ public enum LanguageDetector {
     /// One formula for both directions: target-language plausibility of the
     /// conversion minus current-language plausibility of the original.
     ///
-    /// Neither side is filtered. Punctuation the conversion produces — a
-    /// domain's dot, typed as "ю" — is outside the target model's alphabet,
-    /// and BigramModel skips such characters on its own. The original is
-    /// scored whole: б, ю, ж, х, э, ъ and ё sit on punctuation keys, but in
-    /// the word as typed they are letters. Cutting them out, as the old
-    /// letter-frequency score could afford to, left fragments no Russian
-    /// word is made of — "был" scored as "ыл", "ещё" as "ещ" — and flagged
-    /// the most frequent words of the language.
+    /// Neither side is filtered, and both are scored whole. б, ю, ж, х, э,
+    /// ъ and ё sit on punctuation keys: in a Russian word they are letters
+    /// of the Russian model, and in its Latin spelling ("[e;t" for «хуже»,
+    /// ",sk" for «был») they are symbols the English model charges the
+    /// floor for — on whichever side that spelling is, typed or converted.
+    /// Cutting them out, as the old letter-frequency score could afford to,
+    /// left fragments no Russian word is made of — "был" scored as "ыл",
+    /// "ещё" as "ещ" — and flagged the most frequent words of the language;
+    /// skipping them in the English model alone made the Latin spelling
+    /// look English instead («хуже» scored as "et" and was missed, «хужеб»
+    /// as "et" and was corrected). The dot of a domain («фьфящтюву» →
+    /// "amazon.de") is charged the same way; domains are caught by
+    /// looksLikeDomain, not by the score.
     private static func layoutLLR(original: String, converted: String, currentLayoutIsRussian: Bool) -> Double {
         currentLayoutIsRussian
             ? englishScore(converted) - russianScore(original)

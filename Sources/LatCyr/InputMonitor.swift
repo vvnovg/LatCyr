@@ -74,6 +74,12 @@ final class InputMonitor {
     /// Genuine (non-synthetic) keyDowns seen. A keystroke PendingFix is
     /// valid only while this hasn't moved since the correction.
     private(set) var keyDownCount = 0
+    /// KeyDowns that went into `currentWord` since it was last cleared: a
+    /// letter appended, a Backspace that removed one. Equal to the keyDowns
+    /// since the boundary exactly when the buffer is the text on screen
+    /// after that boundary — what the keystroke fallback needs to know to
+    /// delete past a tail typed during correctionDelay (KeystrokeFallbackPlan).
+    private var keyDownsInWord = 0
     private var doubleShift = DoubleShiftDetector()
     /// Called on the main queue when a double Shift is recognised.
     var onDoubleShift: (() -> Void)?
@@ -140,7 +146,7 @@ final class InputMonitor {
             guard let self else { return }
             self.enableAccessibilityIfHybrid(notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
             Log.debug("buffer reset: app activated (word \(Sensitive(self.currentWord)), carry \(self.carry.count))")
-            self.currentWord = ""
+            self.clearWord()
             self.currentWordIsFragment = false
             self.breakChain()
             // A keystroke candidate describes the screen of the app just left.
@@ -170,7 +176,7 @@ final class InputMonitor {
         diagnosticsTimer = nil
         keyFlow = nil
         isRunning = false
-        currentWord = ""
+        clearWord()
         currentWordIsFragment = false
         breakChain()
         pendingFix = nil
@@ -280,7 +286,7 @@ final class InputMonitor {
             // clicking into a terminal.
             if !currentWord.isEmpty {
                 Log.debug("buffer reset: mouse down mid-word (word \(Sensitive(currentWord)))")
-                currentWord = ""
+                clearWord()
                 currentWordIsFragment = true
             }
             _ = doubleShift.feed(.otherKey, at: Self.seconds(event))
@@ -328,6 +334,7 @@ final class InputMonitor {
                 breakChain()
             } else {
                 currentWord.removeLast()
+                keyDownsInWord += 1
             }
             return false
         }
@@ -336,7 +343,7 @@ final class InputMonitor {
             if !currentWord.isEmpty || !carry.isEmpty {
                 Log.debug("buffer reset: no character for keyCode \(keyCode) (word \(Sensitive(currentWord)), carry \(carry.count))")
             }
-            currentWord = ""
+            clearWord()
             // An arrow key moves the cursor away from the chain; anything
             // else here is just as opaque. Either way the chain can no
             // longer be assumed to sit right before the cursor, and the
@@ -351,12 +358,22 @@ final class InputMonitor {
         // below, and using a stale value here (from the *previous* word)
         // could misclassify a genuinely-ambiguous key if the user switched
         // Russian variants between words.
-        if char.isLetter || TextConverter.ambiguousLetterSymbols(for: layoutManager.currentRussianVariant).contains(char) {
+        //
+        // The punctuation keys are ambiguous under the English layout only,
+        // where they type б ю ж э ъ х ё. Under the Russian layout they type
+        // those letters, so a "," or ":" that arrives there comes from
+        // another key (Shift+/ for the comma) and is real punctuation: a
+        // boundary, not part of the word. Buffered, «хуже,» was judged as a
+        // five-character word against a lower threshold than «хуже» and
+        // corrected to "[e;t,".
+        if char.isLetter
+            || (!layoutManager.isRussian && TextConverter.ambiguousLetterSymbols(for: layoutManager.currentRussianVariant).contains(char)) {
             if currentWord.isEmpty {
                 currentLayoutIsRussian = layoutManager.isRussian
                 currentRussianVariant = layoutManager.currentRussianVariant
             }
             currentWord.append(char)
+            keyDownsInWord += 1
             if currentWord.count == 2 {
                 scheduleProactiveCheck()
             }
@@ -397,7 +414,7 @@ final class InputMonitor {
                 breakChain()
                 if char.isNewline || char == "\t" {
                     let word = currentWord
-                    currentWord = ""
+                    clearWord()
                     // A genuine boundary character was processed; the early
                     // return here is only about correcting synchronously, not
                     // about skipping the boundary bookkeeping.
@@ -436,7 +453,7 @@ final class InputMonitor {
                     ? PreviousWord(text: currentWord, layoutIsRussian: currentLayoutIsRussian, variant: currentRussianVariant)
                     : nil
             }
-            currentWord = ""
+            clearWord()
             // A genuine boundary character has now landed on screen, so
             // whatever comes next starts a fresh token — the fragment/whole
             // distinction no longer applies to it, regardless of which
@@ -446,7 +463,7 @@ final class InputMonitor {
             if !currentWord.isEmpty || !carry.isEmpty {
                 Log.debug("buffer reset: non-letter \(char.debugDescription) (word \(Sensitive(currentWord)), carry \(carry.count))")
             }
-            currentWord = ""
+            clearWord()
             currentWordIsFragment = false
             breakChain()
         }
@@ -776,7 +793,7 @@ final class InputMonitor {
         // anchor goes along only to locate the previous word after success.
         if applyCorrection(word: word, carried: carried, wasRussian: wasRussian, variant: variant, replacePrefix: true,
                            anchor: resolved.anchor, previous: previous, keyDownsAtBoundary: keyDownCount) {
-            currentWord = ""
+            clearWord()
             // Whatever gets typed next is not a fresh token: the word on
             // screen already has its first two characters (now corrected),
             // and any further letters the user types are appended to that
@@ -809,7 +826,7 @@ final class InputMonitor {
         // Drop whatever's accumulated since — it started under the layout
         // we just left, and letting it mix with post-switch typing would
         // feed a stale currentLayoutIsRussian into a later correction.
-        currentWord = ""
+        clearWord()
         // The "/" itself is already on screen and correct (see the design
         // note above) — whatever the user types next continues right after
         // it, so the next buffer is again a suffix of an on-screen token,
@@ -926,6 +943,10 @@ final class InputMonitor {
 
         let deleteCount: Int
         let typed: String
+        // Typed after the boundary during correctionDelay, under the layout
+        // being left: deleted with the span and retyped converted.
+        var tail = ""
+        var convertedTail = ""
         if let boundary {
             // correctionDelay deliberately let the app process the boundary
             // key before this runs, so it's already on screen and the
@@ -941,8 +962,21 @@ final class InputMonitor {
                 logNotApplied("keystroke fallback skipped: boundary is Enter/Tab", proactive: replacePrefix, span: span)
                 return false
             }
-            deleteCount = span.count + 1
-            typed = converted + String(boundary)
+            // Keys typed since the boundary have landed after it. The fallback
+            // has no screen to read, so it trusts the word buffer — but only
+            // when the buffer accounts for every one of those keys; otherwise
+            // deleting blind would eat the wrong text.
+            guard let known = KeystrokeFallbackPlan.tail(
+                buffer: currentWord, keyDownsSinceBoundary: keyDownCount - keyDownsAtBoundary, keyDownsInBuffer: keyDownsInWord
+            ) else {
+                logNotApplied("keystroke fallback skipped: keys landed since the boundary that the word buffer does not describe", proactive: replacePrefix, span: span)
+                return false
+            }
+            tail = known
+            convertedTail = convert(tail, wasRussian: wasRussian, variant: variant)
+            let plan = KeystrokeFallbackPlan(span: span, converted: converted, boundary: boundary, tail: tail, convertedTail: convertedTail)
+            deleteCount = plan.deleteCount
+            typed = plan.typed
         } else {
             deleteCount = span.count
             typed = converted
@@ -964,7 +998,15 @@ final class InputMonitor {
         } else {
             pendingFix = nil
         }
-        Log.info("corrected via keystroke (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count) deleted=\(deleteCount)")
+        if !tail.isEmpty {
+            // The tail is now on screen converted, i.e. as if typed under
+            // the layout switched to below. The buffer follows it, so the
+            // rest of that word is judged as one token under the right
+            // layout; keyDownsInWord still counts the keys that produced it.
+            currentWord = convertedTail
+            currentLayoutIsRussian = !wasRussian
+        }
+        Log.info("corrected via keystroke (\(path)): \(Sensitive(span)) -> \(Sensitive(converted)) carried=\(carried.count) deleted=\(deleteCount) tail=\(tail.count)")
         switchLayout(wasRussian: wasRussian)
         return true
     }
@@ -988,6 +1030,11 @@ final class InputMonitor {
         } else {
             Log.error("correction not applied: \(reason()) (span \(Sensitive(span)))")
         }
+    }
+
+    private func clearWord() {
+        currentWord = ""
+        keyDownsInWord = 0
     }
 
     private func convert(_ text: String, wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant) -> String {

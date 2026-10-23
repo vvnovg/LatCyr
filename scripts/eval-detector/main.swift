@@ -22,6 +22,7 @@ import AppKit
 //   flagged <ru|en> <list.txt>           words of the list flagged as typed (false-positive dump)
 //   wrapped <en_holdout.txt>             English words W wrapped in shifted letter keys ("W", W:, {W, {"W …),
 //                                        typed in the EN layout (.pc): false positives per form, with examples
+//   edges <en_holdout.txt>               the same for unshifted punctuation keys at the edges (W, W. W; 'W [W `W` …)
 //   build-ru-dict <out.txt>              set D: Russian words from NSSpellChecker completions
 
 typealias Variant = TextConverter.RussianKeyboardVariant
@@ -276,6 +277,26 @@ func wrapped(path: String) {
     }
 }
 
+/// Unshifted punctuation keys at the edges of correct English words — the
+/// comma after "the", a markdown "[" before a word — typed in the English
+/// layout, where each is also a Russian letter (б ю ж э ъ х ё) and stays in
+/// the token: false positives per form, like `wrapped` for the Shift layer.
+func edges(path: String) {
+    let latin = Set("abcdefghijklmnopqrstuvwxyz")
+    let list = readWords(path).filter { $0.allSatisfy { latin.contains($0) } }
+    let forms: [(String, (String) -> String)] = [
+        ("W", { $0 }), ("W,", { $0 + "," }), ("W.", { $0 + "." }), ("W;", { $0 + ";" }), ("W'", { $0 + "'" }),
+        ("W]", { $0 + "]" }), ("W`", { $0 + "`" }), ("'W", { "'" + $0 }), ("[W", { "[" + $0 }), ("`W", { "`" + $0 }),
+        ("`W`", { "`" + $0 + "`" }), ("[W]", { "[" + $0 + "]" }), ("'W'", { "'" + $0 + "'" }),
+    ]
+    print("form\tflagged\ttotal\tpercent\texamples")
+    for (name, wrap) in forms {
+        let hits = list.map(wrap).filter { detector($0, false, .pc) }
+        let percent = String(format: "%.2f", 100 * Double(hits.count) / Double(list.count))
+        print("\(name)\t\(hits.count)\t\(list.count)\t\(percent)%\t\(hits.prefix(8).joined(separator: " "))")
+    }
+}
+
 func buildRussianDictionary(out: String) {
     let alphabet = Array("абвгдежзийклмнопрстуфхцчшщъыьэюя")
     let cyrillic = Set(alphabet + ["ё"])
@@ -307,6 +328,8 @@ case "flagged" where args.count == 4:
     flagged(russianActive: activeLayout(args[2]), path: args[3])
 case "wrapped" where args.count == 3:
     wrapped(path: args[2])
+case "edges" where args.count == 3:
+    edges(path: args[2])
 case "build-ru-dict" where args.count == 3:
     buildRussianDictionary(out: args[2])
 default:

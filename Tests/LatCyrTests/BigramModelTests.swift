@@ -36,11 +36,15 @@ final class BigramModelTests: XCTestCase {
         XCTAssertEqual(m.averageLogProb("AB"), m.averageLogProb("ab"))
     }
 
-    // The apostrophe in "don't" is the "э" key under the English layout;
-    // it must neither break the word nor cost a floor-level pair.
-    func testCharactersOutsideAlphabetAreSkipped() {
+    // A character outside the alphabet is an impossible symbol of the
+    // language: both transitions through it cost the floor, and it counts
+    // as a position. Skipping it instead scored "[e;t" (хуже under the
+    // English layout) as the perfectly English "et".
+    func testCharactersOutsideAlphabetCostTheFloor() {
         let m = model([(0, 1, -1), (1, 2, -2), (2, 3, -3)])
-        XCTAssertEqual(m.averageLogProb("a'b"), -2, accuracy: 1e-9)
+        let floor = BigramModel.floorLogProb
+        XCTAssertEqual(m.averageLogProb("a[b"), (-1 + floor + floor - 3) / 4, accuracy: 1e-9)
+        XCTAssertLessThan(m.averageLogProb("a[b"), m.averageLogProb("ab"))
     }
 
     func testYoFoldsIntoYe() {
@@ -52,7 +56,7 @@ final class BigramModelTests: XCTestCase {
     func testWordWithoutAlphabetLettersScoresFloor() {
         let m = model([])
         XCTAssertEqual(m.averageLogProb(""), BigramModel.floorLogProb)
-        XCTAssertEqual(m.averageLogProb("'1"), BigramModel.floorLogProb)
+        XCTAssertEqual(m.averageLogProb("'1"), BigramModel.floorLogProb, accuracy: 1e-9)
     }
 
     func testFloorIsFinite() {

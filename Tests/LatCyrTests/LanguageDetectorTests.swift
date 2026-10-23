@@ -119,18 +119,19 @@ final class LanguageDetectorTests: XCTestCase {
 
     // A word whose conversion contains punctuation — a domain name — must be
     // corrected whole, dot included. "фьфящтюву" is "amazon.de" typed under the
-    // Russian layout. The English model skips the dot (it is not in its
-    // alphabet); the Russian side is scored whole. Under the old
-    // letter-frequency score the "ю" from the "." key held the word just over
-    // the threshold, which is why scoring used to filter punctuation out.
+    // Russian layout. The English model charges the dot inside the word
+    // (LLR 2.45, still above the threshold), and the domain rule catches it
+    // regardless. Under the old letter-frequency score the "ю" from the "."
+    // key held the word just over the threshold, which is why scoring used
+    // to filter punctuation out.
     func testDomainWithPunctuationDetected() {
         XCTAssertEqual(TextConverter.toLatin("фьфящтюву", variant: .pc), "amazon.de")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "фьфящтюву", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
     }
 
-    // Domains that already scored correctly must keep doing so: skipping the
-    // dot shortens the English side, and a shorter word must not drift below
-    // its threshold.
+    // Domains that already scored correctly must keep doing so. "t.me" is
+    // too short for the label rule and, with its dot charged, for the score
+    // (LLR 1.48 against 1.5): it is listed in knownShortDomains.
     func testDomainsThatAlreadyWorkedStillDetected() {
         XCTAssertEqual(TextConverter.toLatin("пщщпдуюсщь", variant: .pc), "google.com")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "пщщпдуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
@@ -140,8 +141,9 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // The mirror case: a Cyrillic letter that merely *converts* to punctuation
-    // is still a real letter of a correctly typed Russian word. Skipping the
-    // conversion's punctuation must not turn any of these into a false positive.
+    // is still a real letter of a correctly typed Russian word, and none of
+    // these may become a false positive. "т.е." under the Russian layout is
+    // not even scorable: its dots are real punctuation there.
     func testCorrectRussianWordsWhoseConversionHasPunctuationNotTouched() {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "пою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // gj.
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "мою", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // vj.
@@ -151,8 +153,9 @@ final class LanguageDetectorTests: XCTestCase {
     }
 
     // "ё" sits on a different physical key in each Russian variant ("`" under
-    // .pc, "\" under .apple), but both convert to punctuation, and the English
-    // model skips both — and "объём" stays untouched either way.
+    // .pc, "\" under .apple), but both convert to punctuation inside the
+    // word, charged by the English model — and "объём" stays untouched
+    // either way.
     func testPunctuationFilteringHoldsForBothVariants() {
         XCTAssertEqual(TextConverter.toLatin("объём", variant: .pc), "j,]`v")
         XCTAssertEqual(TextConverter.toLatin("объём", variant: .apple), "j,]\\v")
@@ -160,10 +163,10 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "объём", currentLayoutIsRussian: true, exceptions: [], variant: .apple))
     }
 
-    // Punctuation in the original is skipped by the English model, while the
-    // conversion's letters are scored in full: under the English layout ","
-    // and "]" are the "б" and "ъ" keys, so these words must behave exactly as
-    // they did before.
+    // Punctuation inside the original is charged by the English model, while
+    // the conversion's letters are scored in full: under the English layout
+    // "," and "]" are the "б" and "ъ" keys. A trailing "," is free, and
+    // "ghbdtn," is caught on the strength of "ghbdtn" alone.
     func testPunctuationInOriginalOnlyStillDetected() {
         XCTAssertEqual(TextConverter.toCyrillic("j,]trn", variant: .pc), "объект")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "j,]trn", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
@@ -187,13 +190,14 @@ final class LanguageDetectorTests: XCTestCase {
 
     // "нщгегиуюсщь" is "youtube.com". Under the old letter-frequency score
     // it read as plausible Russian (н, е, и, у, с are all high-frequency
-    // letters); the bigram model catches it on its own now (LLR 2.76). The
-    // domain rule stays as an unconditional safeguard, like the exception
-    // list: domains are always Latin.
+    // letters); the bigram model is barely above its threshold here (LLR
+    // 1.07 with the dot charged), and the domain rule is what catches
+    // domains, unconditionally, like the exception list: domains are
+    // always Latin.
     func testDomainNameOverridesScoreHeuristic() {
         XCTAssertEqual(TextConverter.toLatin("нщгегиуюсщь", variant: .pc), "youtube.com")
         XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
-        XCTAssertGreaterThan(LanguageDetector.wrongLayoutLLR(word: "нщгегиуюсщь", currentLayoutIsRussian: true, variant: .pc)!, LanguageDetector.llrThresholds.longer)
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "нщгегиуюсщь", currentLayoutIsRussian: true, exceptions: [], variant: .pc, thresholds: .uniform(100)))
     }
 
     // Real Russian words whose conversion superficially resembles a domain.
@@ -210,6 +214,89 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "горюем", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "клюву", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
         XCTAssertFalse(LanguageDetector.isWrongLayout(word: "моюся", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+    }
+
+    // Letters on punctuation keys (х ж б ю э ъ ё are "[ ; , . ' ] `" under
+    // the English layout) must weigh on the typed side too. Skipped by the
+    // English model, "[e;t" scored as the perfectly English "et" and «хуже»
+    // lost (LLR -1.13); «тебе», «был», «жду» went the same way. Inside the
+    // word, and leading "," and ";", they now cost the floor.
+    func testPunctuationKeyLettersWeighOnTheTypedSide() {
+        for (typed, word) in [("[e;t", "хуже"), ("nt,t", "тебе"), (",sk", "был"), (";le", "жду"), (",elen", "будут"), ("ct,z", "себя")] {
+            XCTAssertEqual(TextConverter.toCyrillic(typed, variant: .pc), word)
+            XCTAssertTrue(LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: false, exceptions: [], variant: .pc),
+                          "\(typed) (\(word)) not corrected")
+        }
+    }
+
+    // A trailing punctuation key stays free: "the," is how English ends a
+    // token, and «муж» ("ve;") or «хлеб» ("[kt,") has the same shape with
+    // the roles swapped. Charging it caught them and corrected "the," into
+    // «еруб» (edges mode of scripts/eval-detector: 5% of English words with
+    // a comma, 8% with a dot). The accepted trade-off: these stay missed.
+    func testTrailingPunctuationKeyStaysFree() {
+        for (typed, word) in [("the,", "еруб"), ("he,", "руб"), ("it,", "шеб"), ("file.", "ашдую"), ("x;", "чж")] {
+            XCTAssertEqual(TextConverter.toCyrillic(typed, variant: .pc), word)
+            XCTAssertFalse(LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: false, exceptions: [], variant: .pc),
+                           "\(typed) wrongly corrected")
+        }
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "ve;", currentLayoutIsRussian: false, exceptions: [], variant: .pc))  // муж
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "[kt,", currentLayoutIsRussian: false, exceptions: [], variant: .pc)) // хлеб
+    }
+
+    // What englishScore hands the model: trailing symbols and the apostrophe
+    // are gone, a leading quote, bracket, backtick or dot too; a leading ","
+    // or ";" and anything inside the word stay to be charged.
+    func testEnglishSpellingStripped() {
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("the,"), "the")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("code`;]."), "code")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("\"[`.word"), "word")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped(",sk"), ",sk")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped(";le"), ";le")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("[e;t"), "e;t")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("don't"), "dont")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("'don't'"), "dont")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("amazon.de"), "amazon.de")
+        XCTAssertEqual(LanguageDetector.englishSpellingStripped("...,"), "")
+    }
+
+    // The mirror: a correct Russian word whose conversion is mostly
+    // punctuation keys must not look English because the English model
+    // ignored the punctuation. «хужеб» converts to "[e;t," — "et" again.
+    func testRussianWordsConvertingToPunctuationKeysNotTouched() {
+        for word in ["хужеб", "муж", "жду", "двух", "клуб", "губы", "эбби"] {
+            XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: true, exceptions: [], variant: .pc),
+                           "\(word) wrongly corrected")
+        }
+    }
+
+    // Under the Russian layout a punctuation-key symbol in the token is
+    // real punctuation (a comma is Shift+/ there), never a letter: the
+    // token is not a word and is not scored. «хуже,» used to be judged as
+    // a five-character word — a lower threshold than «хуже» alone — and
+    // was corrected to "[e;t,".
+    func testRussianLayoutPunctuationIsNotPartOfTheWord() {
+        for word in ["хуже,", "хуже.", "муж,", "двух,", "жду,", "клуб;"] {
+            XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: true, exceptions: [], variant: .pc),
+                           "\(word) wrongly corrected")
+            XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: word, currentLayoutIsRussian: true, variant: .pc), word)
+        }
+        // The English layout keeps them: "," is "б" there.
+        XCTAssertNotNil(LanguageDetector.wrongLayoutLLR(word: "[kt,", currentLayoutIsRussian: false, variant: .pc))
+    }
+
+    // The apostrophe is the one punctuation-key symbol English spelling
+    // uses inside a word, so the English model lets it through: "it's" and
+    // "don't" typed under the Russian layout are caught, typed correctly
+    // they are left alone.
+    func testApostropheIsEnglishSpelling() {
+        XCTAssertEqual(TextConverter.toLatin("шеэы", variant: .pc), "it's")
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "шеэы", currentLayoutIsRussian: true, exceptions: [], variant: .pc))
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "вщтэе", currentLayoutIsRussian: true, exceptions: [], variant: .pc)) // don't
+        XCTAssertTrue(LanguageDetector.isWrongLayout(word: "шэь", currentLayoutIsRussian: true, exceptions: [], variant: .pc))   // i'm
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "it's", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "don't", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
+        XCTAssertFalse(LanguageDetector.isWrongLayout(word: "i'm", currentLayoutIsRussian: false, exceptions: [], variant: .pc))
     }
 
     // Scores are mean natural-log bigram probabilities now: negative,

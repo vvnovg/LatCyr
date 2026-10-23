@@ -37,22 +37,33 @@ public struct BigramModel {
     /// Mean natural-log probability over every transition of "^word$".
     ///
     /// Lowercases and folds "ё" into "е" (the tables are built the same way).
-    /// Characters outside the alphabet are skipped and their neighbours
-    /// joined directly — the way the old letter-frequency score ignored
-    /// them; the apostrophe of "don't" is the case that matters. A word with
-    /// no letters of the alphabet at all scores `floorLogProb`.
+    /// A character outside the alphabet is an impossible symbol of the
+    /// language: it keeps its position, and both transitions through it
+    /// cost the floor. Skipping such characters instead, as the old
+    /// letter-frequency score did, joined their neighbours directly and
+    /// scored "[e;t" («хуже» typed under the English layout) as the
+    /// perfectly English "et" — the letters х, ж, б, ю, э, ъ and ё sit on
+    /// punctuation keys, so a word made of them looked English on the typed
+    /// side and lost. Whatever a caller wants let through (the apostrophe
+    /// of "don't", for the English model) it strips before scoring. An empty
+    /// word scores `floorLogProb`.
     public func averageLogProb(_ word: String) -> Double {
         let positions = word.lowercased()
             .replacingOccurrences(of: "ё", with: "е")
-            .compactMap { index[$0] }
+            .map { index[$0] ?? Self.unknown }
         guard !positions.isEmpty else { return Self.floorLogProb }
 
         var previous = 0
         var sum = 0.0
         for position in positions + [size - 1] {
-            sum += Double(logProbs[previous * size + position])
+            sum += previous == Self.unknown || position == Self.unknown
+                ? Self.floorLogProb
+                : Double(logProbs[previous * size + position])
             previous = position
         }
         return sum / Double(positions.count + 1)
     }
+
+    /// Position of a character outside the alphabet.
+    private static let unknown = -1
 }

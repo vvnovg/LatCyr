@@ -49,9 +49,11 @@ final class BundledExceptionsTests: XCTestCase {
 
     // Documents why these are listed: frequent Russian words the bigram score
     // misreads as a wrong layout. They are fixed here, not by tuning thresholds.
+    // («будут» and «также» were the examples until the English model started
+    // charging the punctuation keys inside a conversion; they stay listed.)
     func testFrequentRussianWordsMisreadByScoreAreListed() {
         let exceptions = bundled
-        for word in ["будут", "также"] {
+        for word in ["слышу", "штук", "эффект"] {
             XCTAssertTrue(exceptions.contains(word), "\(word) missing from the bundled exceptions")
             for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
                 XCTAssertTrue(
