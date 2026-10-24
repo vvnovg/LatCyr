@@ -188,6 +188,28 @@ final class LanguageDetectorTests: XCTestCase {
         }
     }
 
+    // A layout types one alphabet, so letters of both in one buffer mean the
+    // layout was switched mid-word: the buffer no longer describes text typed
+    // under one layout, and converting it as such goes wrong. Reproduced live:
+    // "шлюз ", a manual switch to English, "LLM" — the first L was read under
+    // the Russian layout as "Д" but printed nothing, the buffer "ДLLM" (LLR
+    // 7.9) was corrected to "LLLM" and its five Backspaces ate the space
+    // before it: «шлюзLLLM».
+    func testMixedAlphabetBuffersNotTouched() {
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            for word in ["ДLLM", "дllm", "LLMд", "ghbвtn"] {
+                XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: true, exceptions: [], variant: variant),
+                               "\(word) (ru, \(variant)) wrongly corrected")
+                XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: word, currentLayoutIsRussian: true, variant: variant))
+            }
+            for word in ["рuддщ", "hellщ", "Дhello"] {
+                XCTAssertFalse(LanguageDetector.isWrongLayout(word: word, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                               "\(word) (en, \(variant)) wrongly corrected")
+                XCTAssertNil(LanguageDetector.wrongLayoutLLR(word: word, currentLayoutIsRussian: false, variant: variant))
+            }
+        }
+    }
+
     // "нщгегиуюсщь" is "youtube.com". Under the old letter-frequency score
     // it read as plausible Russian (н, е, и, у, с are all high-frequency
     // letters); the bigram model is barely above its threshold here (LLR

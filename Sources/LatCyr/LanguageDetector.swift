@@ -282,10 +282,26 @@ public enum LanguageDetector {
         // A buffer with no letter (a code fence, an ellipsis) scores the
         // probability floor on the original side, so any conversion looks
         // infinitely better; such buffers are never scorable.
+        //
+        // Every letter must be one the active layout types: Cyrillic under the
+        // Russian layout, Latin under the English one. Both alphabets in one
+        // buffer mean the layout was switched mid-word, so the buffer does not
+        // describe text typed under one layout, and its length may not match
+        // the screen either: the key read under the old layout can print
+        // nothing ("шлюз ", switch, "LLM" buffered as "ДLLM", three letters
+        // shown). Corrected, it scored LLR 7.9 — the other model floors on the
+        // foreign letters — and the keystroke fallback deleted one character
+        // too many, the space before the word.
         let symbols = currentLayoutIsRussian ? [] : TextConverter.ambiguousLetterSymbols(for: variant)
+        let typedByLayout: (Character) -> Bool = currentLayoutIsRussian ? isCyrillic : { $0.isASCII }
         return lower.count >= minWordLength
             && lower.contains(where: { $0.isLetter })
-            && lower.allSatisfy({ $0.isLetter || symbols.contains($0) })
+            && lower.allSatisfy({ ($0.isLetter && typedByLayout($0)) || symbols.contains($0) })
+    }
+
+    /// Cyrillic block (U+0400–U+04FF): the letters a Russian layout types, ё included.
+    private static func isCyrillic(_ char: Character) -> Bool {
+        char.unicodeScalars.allSatisfy { (0x0400...0x04FF).contains($0.value) }
     }
 
     private static func convert(
