@@ -6,7 +6,7 @@ import AppKit
 /// the decisions are ManualFix.plan's and PendingFix's; verified by hand.
 final class ManualFixer {
     enum Outcome {
-        case fixed(exception: String)
+        case fixed(exceptions: [String])
         case nothingToFix
         case invalidWord
         case refused(String)
@@ -128,8 +128,8 @@ final class ManualFixer {
     }
 
     private func remember(_ plan: ManualFix.Plan, path: String) -> Outcome {
-        exceptionStore.add(plan.exception)
-        Log.info("fix-and-remember (\(path)): -> \(Sensitive(plan.replacement)), exception added")
-        return .fixed(exception: plan.exception)
+        for exception in plan.exceptions { exceptionStore.add(exception) }
+        Log.info("fix-and-remember (\(path)): -> \(Sensitive(plan.replacement)), \(plan.exceptions.count) exception(s) added")
+        return .fixed(exceptions: plan.exceptions)
     }
 }

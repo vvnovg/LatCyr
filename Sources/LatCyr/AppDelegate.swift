@@ -196,12 +196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func fixAndRemember() {
         inputMonitor.fixAndRemember { [weak self] outcome in
             switch outcome {
-            case .fixed(let exception):
-                self?.showAlert(message: "Исправлено и запомнено: \(exception)")
+            case .fixed(let exceptions):
+                self?.showAlert(message: "Исправлено и запомнено: \(exceptions.joined(separator: ", "))")
             case .nothingToFix:
-                self?.showAlert(message: "Выделите слово, набранное не в той раскладке.")
+                self?.showAlert(message: "Выделите слово или фразу, набранные не в той раскладке.")
             case .invalidWord:
-                self?.showAlert(message: "Выделите одно слово на одном языке — русском или английском.")
+                self?.showAlert(message: "Выделите до \(ManualFix.maxWords) слов на одном языке — русском или английском.")
             case .refused, .failed:
                 self?.showAlert(message: "Не удалось исправить здесь. В терминалах и некоторых приложениях это не поддерживается.")
             }
