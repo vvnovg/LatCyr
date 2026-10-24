@@ -151,4 +151,35 @@ final class TextConverterTests: XCTestCase {
         XCTAssertTrue(TextConverter.shiftedLetterSymbols(for: .apple).contains("|"))
         XCTAssertFalse(TextConverter.shiftedLetterSymbols(for: .apple).contains("~"))
     }
+
+    // The punctuation key that ends a word typed in the English layout but
+    // meant as Russian was pressed for the Russian layout too: Shift+6 is the
+    // comma of «Russian». Pairs read from the system layouts with
+    // UCKeyTranslate (ABC against Russian and RussianWin), shifted digit row
+    // and the "/" key only — the ` and § keys depend on the keyboard type.
+    func testRussianReadingOfBoundaryPerVariant() {
+        let apple: [Character: Character] = ["@": "\"", "#": "№", "$": "%", "^": ",", "%": ":", "&": ".", "*": ";"]
+        let pc: [Character: Character] = ["@": "\"", "#": "№", "$": ";", "^": ":", "&": "?", "/": ".", "?": ",", "|": "/"]
+        for (typed, meant) in apple {
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: typed, variant: .apple), meant, "\(typed) (apple)")
+        }
+        for (typed, meant) in pc {
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: typed, variant: .pc), meant, "\(typed) (pc)")
+        }
+    }
+
+    // Keys that print the same in both layouts, and keys the other variant
+    // leaves alone, keep the boundary as typed.
+    func testRussianReadingOfBoundaryKeepsSharedKeys() {
+        for ch: Character in [" ", "!", "(", ")", "-", "_", "=", "+", "1", "0", "\n", "\t"] {
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: ch, variant: .apple), ch)
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: ch, variant: .pc), ch)
+        }
+        for ch: Character in ["/", "?", "|"] {
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: ch, variant: .apple), ch)
+        }
+        for ch: Character in ["%", "*"] {
+            XCTAssertEqual(TextConverter.russianReading(ofBoundary: ch, variant: .pc), ch)
+        }
+    }
 }

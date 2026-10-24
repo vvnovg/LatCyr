@@ -172,7 +172,15 @@ final class TextFieldController {
     /// edited it since capture) and replaces using the *current* cursor
     /// position, so the delta shift lands correctly even if the user has
     /// typed more text after the anchored word in the meantime.
-    func replaceAnchoredWord(_ anchor: WordAnchor, word: String, with replacement: String) -> Bool {
+    ///
+    /// `boundary`, when given, is the key that ended the word as typed and as
+    /// it was meant ("^" typed in the English layout is the comma of
+    /// «Russian»). It sits right after the word by now; if it is still there,
+    /// it is replaced in the same edit, otherwise the word alone is.
+    func replaceAnchoredWord(
+        _ anchor: WordAnchor, word: String, with replacement: String,
+        boundary: (typed: Character, meant: Character)? = nil
+    ) -> Bool {
         guard let text = text(of: anchor.element),
               let liveRange = selectedRange(of: anchor.element) else {
             Log.debug("replace: anchored element no longer readable")
@@ -191,7 +199,19 @@ final class TextFieldController {
         }
 
         let cursor = liveRange.location + liveRange.length
+        if let boundary, let typed = Self.singleUnit(boundary.typed), let meant = Self.singleUnit(boundary.meant),
+           anchor.range.upperBound < utf16.count, utf16[anchor.range.upperBound] == typed {
+            let range = anchor.range.lowerBound..<(anchor.range.upperBound + 1)
+            let withBoundary = replacement + String(utf16CodeUnits: [meant], count: 1)
+            return replace(range: range, with: withBoundary, in: anchor.element, utf16: utf16, cursor: cursor)
+        }
         return replace(range: anchor.range, with: replacement, in: anchor.element, utf16: utf16, cursor: cursor)
+    }
+
+    /// The character as one UTF-16 code unit, or nil if it takes more.
+    private static func singleUnit(_ char: Character) -> UInt16? {
+        let units = Array(String(char).utf16)
+        return units.count == 1 ? units[0] : nil
     }
 
     /// Widen `anchor` backwards over `words` — the chain of short function

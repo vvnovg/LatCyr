@@ -443,7 +443,15 @@ final class InputMonitor {
                         reading: reading
                     )
                 }
-                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, previous: before, reading: reading)
+                // A word typed in the English layout but meant as Russian was
+                // ended with the key the Russian layout puts the punctuation
+                // on (Shift+6 for the comma of «Russian», arriving as "^"):
+                // the boundary is retyped as that layout prints it. Typed under
+                // the Russian layout, it is already what was meant ("ашду," →
+                // "file,"), so the other direction keeps it.
+                let meantBoundary = (!currentLayoutIsRussian && !layoutManager.isRussian)
+                    ? TextConverter.russianReading(ofBoundary: char, variant: currentRussianVariant) : char
+                scheduleRetroactiveCheck(word: currentWord, carried: carried, wasRussian: currentLayoutIsRussian, variant: currentRussianVariant, boundary: char, meantBoundary: meantBoundary, previous: before, reading: reading)
             } else if char == " ", !currentWordIsFragment, LanguageDetector.isCarriableFunctionWord(
                 word: currentWord, currentLayoutIsRussian: currentLayoutIsRussian,
                 exceptions: exceptionStore.words, variant: currentRussianVariant
@@ -578,7 +586,7 @@ final class InputMonitor {
         }
     }
 
-    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, previous: PreviousWord?, reading: LanguageDetector.Reading?) {
+    private func scheduleRetroactiveCheck(word: String, carried: [String], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, boundary: Character, meantBoundary: Character, previous: PreviousWord?, reading: LanguageDetector.Reading?) {
         // Capture the word's position now, synchronously — not 50ms from
         // now, when applyCorrection actually runs. If the user starts the
         // next word without pausing, a cursor-relative lookup done later
@@ -592,11 +600,11 @@ final class InputMonitor {
         let keyDownsAtBoundary = keyDownCount
         // Secure Event Input held by another app hides keystrokes from the
         // tap entirely; logging it here lets support spot it next to a miss.
-        Log.debug("retroactive scheduled: anchor=\(target.anchor != nil) narrowed=\(target.narrowed) carried=\(carried.count) keptCarried=\(resolved.carried.count) secureInput=\(IsSecureEventInputEnabled())")
+        Log.debug("retroactive scheduled: anchor=\(target.anchor != nil) narrowed=\(target.narrowed) carried=\(carried.count) keptCarried=\(resolved.carried.count) boundaryReread=\(meantBoundary != boundary) secureInput=\(IsSecureEventInputEnabled())")
         DispatchQueue.main.asyncAfter(deadline: .now() + correctionDelay) { [weak self] in
             self?.applyCorrection(
                 word: target.word, carried: resolved.carried, wasRussian: wasRussian, variant: variant,
-                replacePrefix: false, convertedWord: target.convertedWord, boundary: boundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
+                replacePrefix: false, convertedWord: target.convertedWord, boundary: boundary, meantBoundary: meantBoundary, anchor: resolved.anchor, wordAnchor: resolved.wordAnchor,
                 anchorFailure: target.failure,
                 previous: previous, keyDownsAtBoundary: keyDownsAtBoundary
             )
@@ -857,7 +865,7 @@ final class InputMonitor {
     private func applyCorrection(
         word: String, carried: [String] = [], wasRussian: Bool, variant: TextConverter.RussianKeyboardVariant, replacePrefix: Bool,
         convertedWord: String? = nil,
-        boundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
+        boundary: Character? = nil, meantBoundary: Character? = nil, anchor: TextFieldController.WordAnchor? = nil,
         wordAnchor: TextFieldController.WordAnchor? = nil,
         anchorFailure: TextFieldController.AnchorFailure? = nil,
         previous: PreviousWord? = nil,
@@ -870,6 +878,12 @@ final class InputMonitor {
         let converted = (carried.map { convert($0, wasRussian: wasRussian, variant: variant) } + [wordConverted])
             .joined(separator: " ")
 
+        // The boundary as it should end up on screen, and the AX edit that
+        // puts it there when it differs from what was typed.
+        let shownBoundary = meantBoundary ?? boundary
+        let boundaryEdit = boundary.flatMap { typed in
+            shownBoundary.flatMap { shown in typed == shown ? nil : (typed: typed, meant: shown) }
+        }
         var axReplaced: Bool
         // Why axReplaced is false, for the not-applied line: "AX failed"
         // alone can't tell a missing target from a rejected write. A closure
@@ -897,7 +911,7 @@ final class InputMonitor {
             // Retroactive path: anchor was captured synchronously when the
             // boundary key landed, so it targets the right word even if the
             // user has since started typing the next one.
-            axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted)
+            axReplaced = textFieldController.replaceAnchoredWord(anchor, word: span, with: converted, boundary: boundaryEdit)
         } else {
             axReplaced = false
             axFailure = { "no anchor captured (\(anchorFailure.map { "\($0)" } ?? "unknown"))" }
@@ -918,7 +932,7 @@ final class InputMonitor {
         // (performProactiveFix), not here, so it's enforced locally too.
         if !replacePrefix, !axReplaced, !carried.isEmpty, let wordAnchor {
             let retryWord = wordConverted
-            axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: retryWord)
+            axReplaced = textFieldController.replaceAnchoredWord(wordAnchor, word: word, with: retryWord, boundary: boundaryEdit)
             if axReplaced {
                 // Only the word was replaced; the chain stays as typed.
                 Log.info("corrected via ax (retroactive, retry, chain dropped): \(Sensitive(word)) -> \(Sensitive(retryWord)) carried=0")
@@ -992,7 +1006,7 @@ final class InputMonitor {
             }
             tail = known
             convertedTail = convert(tail, wasRussian: wasRussian, variant: variant)
-            let plan = KeystrokeFallbackPlan(span: span, converted: converted, boundary: boundary, tail: tail, convertedTail: convertedTail)
+            let plan = KeystrokeFallbackPlan(span: span, converted: converted, boundary: shownBoundary ?? boundary, tail: tail, convertedTail: convertedTail)
             deleteCount = plan.deleteCount
             typed = plan.typed
         } else {
@@ -1011,7 +1025,7 @@ final class InputMonitor {
         // the proactive path have no visible boundary: no candidate.
         if let previous, let boundary, keyDownCount == keyDownsAtBoundary {
             pendingFix = .keystroke(
-                word: previous.text, tail: " " + converted + String(boundary),
+                word: previous.text, tail: " " + converted + String(shownBoundary ?? boundary),
                 keyDownCount: keyDownCount, variant: previous.variant
             )
             Log.debug("pending fix recorded (keystroke): \(Sensitive(previous.text))")

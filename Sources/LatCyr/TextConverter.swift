@@ -67,6 +67,25 @@ public enum TextConverter {
         return variant == .pc ? base.union(["~"]) : base.union(["|"])
     }
 
+    /// What a punctuation key typed in the English layout prints in the
+    /// Russian one: the boundary after a word that was typed in the English
+    /// layout but meant as Russian was pressed for the Russian layout too
+    /// (Shift+6, the comma of «Russian», arrives as "^"). Read from the system
+    /// layouts with UCKeyTranslate, ABC against Russian and RussianWin; only
+    /// the shifted digit row and the "/" key — the ` and § keys depend on the
+    /// keyboard type, and the letter keys are in the conversion tables.
+    /// Anything else is returned as typed.
+    public static func russianReading(ofBoundary char: Character, variant: RussianKeyboardVariant) -> Character {
+        (variant == .pc ? pcBoundaries : appleBoundaries)[char] ?? char
+    }
+
+    private static let appleBoundaries: [Character: Character] = [
+        "@": "\"", "#": "№", "$": "%", "^": ",", "%": ":", "&": ".", "*": ";",
+    ]
+    private static let pcBoundaries: [Character: Character] = [
+        "@": "\"", "#": "№", "$": ";", "^": ":", "&": "?", "/": ".", "?": ",", "|": "/",
+    ]
+
     public static func toCyrillic(_ text: String, variant: RussianKeyboardVariant) -> String {
         convert(text, using: variant == .pc ? latinToCyrillicPC : latinToCyrillicApple)
     }
