@@ -64,6 +64,27 @@ final class BundledExceptionsTests: XCTestCase {
         }
     }
 
+    // The other direction: frequent Russian words the score misses when typed
+    // in the English layout. «если» as "tckb" scores 1.34 against the 1.5
+    // four-letter threshold; listed, it is corrected unconditionally.
+    func testFrequentRussianWordsMissedInEnglishLayoutAreCorrected() {
+        let exceptions = bundled
+        for word in ["если"] {
+            XCTAssertTrue(exceptions.contains(word), "\(word) missing from the bundled exceptions")
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                let typed = TextConverter.toLatin(word, variant: variant)
+                XCTAssertFalse(
+                    LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                    "\(typed) (\(variant)) is caught without exceptions; the entry may be unnecessary"
+                )
+                XCTAssertTrue(
+                    LanguageDetector.isWrongLayout(word: typed, currentLayoutIsRussian: false, exceptions: exceptions, variant: variant),
+                    "\(typed) (\(variant)) is not corrected to \(word)"
+                )
+            }
+        }
+    }
+
     func testFileIsCorrectedFromRussianLayout() {
         // History: under the old letter-frequency score "ашду" rated 0.463 Russian,
         // above its 0.4 threshold; the bigram score catches it on its own now
