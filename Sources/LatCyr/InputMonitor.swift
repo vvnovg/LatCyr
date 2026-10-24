@@ -80,6 +80,13 @@ final class InputMonitor {
     /// after that boundary — what the keystroke fallback needs to know to
     /// delete past a tail typed during correctionDelay (KeystrokeFallbackPlan).
     private var keyDownsInWord = 0
+    /// When the last keystroke correction was posted, until its first
+    /// event comes back through this tap. A genuine keyDown seen in between
+    /// was already queued ahead of the injection, so the app receives it
+    /// before the Backspaces and the deletion count is off by one per key.
+    /// Diagnostic only: counted and logged, the correction is not changed.
+    private var injectionPostedAt: Date?
+    private var keysAheadOfInjection = 0
     private var doubleShift = DoubleShiftDetector()
     /// Called on the main queue when a double Shift is recognised.
     var onDoubleShift: (() -> Void)?
@@ -300,7 +307,11 @@ final class InputMonitor {
         guard type == .keyDown else { return false }
         // Ignore our own synthetic keystrokes (KeystrokeSimulator fallback) —
         // otherwise they'd corrupt the word buffer or re-trigger correction.
-        guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else { return false }
+        guard event.getIntegerValueField(.eventSourceUserData) != KeystrokeSimulator.eventMarker else {
+            noteInjectionArrived()
+            return false
+        }
+        noteKeyAheadOfInjection()
         keyDownCount += 1
         _ = doubleShift.feed(.otherKey, at: Self.seconds(event))
         if keyFlow?.keyDownSeen == false, let first = keyFlow?.recordKeyDown(at: Date()) {
@@ -314,6 +325,13 @@ final class InputMonitor {
         if modifierKeyCodes.contains(keyCode) { return false }
         // Skip shortcuts (Cmd/Ctrl held).
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
+            // The buffer survives a shortcut by design, so a letter-shortcut-
+            // letter sequence reads as one word. Logged to tell a space typed
+            // with a modifier still held (it prints nothing and merges two
+            // words) from a space that never reached this tap.
+            if !currentWord.isEmpty {
+                Log.debug("shortcut while a word is buffered (word \(Sensitive(currentWord)), \(flags.contains(.maskCommand) ? "cmd" : "ctrl"), space key: \(keyCode == 49))")
+            }
             // Unlike currentWord, the chain describes text *behind* the
             // current word — exactly what Ctrl+U, Ctrl+W, Cmd+Z, Cmd+X and
             // Cmd+V rewrite. In a terminal there is no anchor to catch a
@@ -985,6 +1003,8 @@ final class InputMonitor {
             logNotApplied("keystroke fallback failed", proactive: replacePrefix, span: span)
             return false
         }
+        injectionPostedAt = Date()
+        keysAheadOfInjection = 0
         // Screen after the previous word is now exactly: space, the corrected
         // span, the boundary — but only if no key landed since the boundary
         // (correctionDelay is 50 ms of the user still typing). Enter/Tab and
@@ -1030,6 +1050,30 @@ final class InputMonitor {
         } else {
             Log.error("correction not applied: \(reason()) (span \(Sensitive(span)))")
         }
+    }
+
+    /// The first event of the last keystroke correction is back through the
+    /// tap: every genuine key queued ahead of it has been counted.
+    private func noteInjectionArrived() {
+        guard injectionPostedAt != nil else { return }
+        if keysAheadOfInjection > 0 {
+            Log.error("keystroke correction overtaken: \(keysAheadOfInjection) typed key(s) reached the app before its Backspaces, deletion off by that many")
+        }
+        injectionPostedAt = nil
+        keysAheadOfInjection = 0
+    }
+
+    /// A genuine keyDown while a keystroke correction is still on its way.
+    /// After half a second the injection is presumed lost (a disabled tap),
+    /// so later keys are not miscounted.
+    private func noteKeyAheadOfInjection() {
+        guard let posted = injectionPostedAt else { return }
+        guard Date().timeIntervalSince(posted) < 0.5 else {
+            injectionPostedAt = nil
+            keysAheadOfInjection = 0
+            return
+        }
+        keysAheadOfInjection += 1
     }
 
     private func clearWord() {
