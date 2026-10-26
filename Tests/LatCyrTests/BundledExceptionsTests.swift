@@ -86,6 +86,33 @@ final class BundledExceptionsTests: XCTestCase {
         }
     }
 
+    // Capitalised in the English layout: «Буфер» is "<eath". englishScore drops
+    // a leading "<" (the Shift of the б key) as English punctuation, so the
+    // score judges "eath" and misses the word, while the lowercase ",eath" is
+    // caught on its own. Listed, the capitalised form is corrected too.
+    func testWordsMissedOnlyCapitalisedInEnglishLayoutAreCorrected() {
+        let exceptions = bundled
+        for word in ["буфер"] {
+            XCTAssertTrue(exceptions.contains(word), "\(word) missing from the bundled exceptions")
+            for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+                let lowercase = TextConverter.toLatin(word, variant: variant)
+                let capitalised = TextConverter.toLatin(word.prefix(1).uppercased() + word.dropFirst(), variant: variant)
+                XCTAssertNotNil(
+                    LanguageDetector.wrongLayoutReading(token: lowercase, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                    "\(lowercase) (\(variant)) is not caught without exceptions"
+                )
+                XCTAssertNil(
+                    LanguageDetector.wrongLayoutReading(token: capitalised, currentLayoutIsRussian: false, exceptions: [], variant: variant),
+                    "\(capitalised) (\(variant)) is caught without exceptions; the entry may be unnecessary"
+                )
+                XCTAssertNotNil(
+                    LanguageDetector.wrongLayoutReading(token: capitalised, currentLayoutIsRussian: false, exceptions: exceptions, variant: variant),
+                    "\(capitalised) (\(variant)) is not corrected"
+                )
+            }
+        }
+    }
+
     // The reported phrase: «и нет» typed as "b ytn". "b" is too short to be
     // scored and is corrected only carried along with a wrong-layout word
     // after it, so missing "ytn" left both words as typed.
