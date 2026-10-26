@@ -66,10 +66,11 @@ final class BundledExceptionsTests: XCTestCase {
 
     // The other direction: frequent Russian words the score misses when typed
     // in the English layout. «если» as "tckb" scores 1.34 against the 1.5
-    // four-letter threshold; listed, it is corrected unconditionally.
+    // four-letter threshold, «нет» as "ytn" 2.17 against the 2.5 three-letter
+    // one; listed, they are corrected unconditionally.
     func testFrequentRussianWordsMissedInEnglishLayoutAreCorrected() {
         let exceptions = bundled
-        for word in ["если"] {
+        for word in ["если", "нет"] {
             XCTAssertTrue(exceptions.contains(word), "\(word) missing from the bundled exceptions")
             for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
                 let typed = TextConverter.toLatin(word, variant: variant)
@@ -82,6 +83,23 @@ final class BundledExceptionsTests: XCTestCase {
                     "\(typed) (\(variant)) is not corrected to \(word)"
                 )
             }
+        }
+    }
+
+    // The reported phrase: «и нет» typed as "b ytn". "b" is too short to be
+    // scored and is corrected only carried along with a wrong-layout word
+    // after it, so missing "ytn" left both words as typed.
+    func testAndNoTypedInEnglishLayoutIsCorrectedWithItsFunctionWord() {
+        let exceptions = bundled
+        for variant in [TextConverter.RussianKeyboardVariant.pc, .apple] {
+            XCTAssertTrue(
+                LanguageDetector.isWrongLayout(word: "ytn", currentLayoutIsRussian: false, exceptions: exceptions, variant: variant),
+                "ytn (\(variant)) is not corrected"
+            )
+            XCTAssertTrue(
+                LanguageDetector.isCarriableFunctionWord(word: "b", currentLayoutIsRussian: false, exceptions: exceptions, variant: variant),
+                "b (\(variant)) is not carried"
+            )
         }
     }
 
